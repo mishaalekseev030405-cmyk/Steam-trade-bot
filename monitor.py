@@ -82,6 +82,13 @@ async def main():
             avg_price = float(item["sell_reference"])
             activity = int(item["volume"])
             discount = float(item["spread"])
+            
+            net_profit = avg_price * 0.90 - buy_price
+            profit_percent = (net_profit / buy_price) * 100
+
+            if profit_percent < MIN_PROFIT_PERCENT:
+                continue
+
 
             message = (
                 "🔎 CS2 — потенциальная перепродажа\n\n"
