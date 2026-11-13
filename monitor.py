@@ -24,6 +24,8 @@ MAX_ALERTS = 3
 COOLDOWN_HOURS = 24
 
 HISTORY_FILE = Path(__file__).parent / "sent_alerts.json"
+PURCHASES_FILE = Path(__file__).parent / "virtual_purchases.json"
+
 
 
 # ===== ИСТОРИЯ УВЕДОМЛЕНИЙ =====
