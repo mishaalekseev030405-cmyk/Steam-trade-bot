@@ -21,7 +21,7 @@ MIN_PROFIT_PERCENT = 10.0
 SELL_FEE = 0.10
 
 MAX_ALERTS = 5
-COOLDOWN_HOURS = 0
+COOLDOWN_HOURS = 1
 
 # Только тестовый режим.
 DRY_RUN = True
