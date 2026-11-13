@@ -1,384 +1,254 @@
 
-import math
+import asyncio
+import json
 import os
-import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import httpx
 
-
-# ===== MARKET.CSGO API =====
-
-BASE_URL = "https://market.csgo.com/api/v2/"
-
-PRICES_URL = (
-    BASE_URL + "prices/class_instance/RUB.json"
-)
-
-LOTS_URL = (
-    BASE_URL + "search-list-items-by-hash-name-all"
-)
+from scanner import scan
 
 
-# ===== НАСТРОЙКИ =====
-
-MIN_PRICE = 50.0
-MAX_PRICE = 500.0
-
-MIN_POPULARITY_7D = 20
+TOTAL_BUDGET = 3000.0
+MAX_ITEM_PRICE = 500.0
 MIN_MARGIN = 50.0
 MIN_PROFIT_PERCENT = 10.0
+SELL_FEE = 0.10
 
-FEE = 0.10
-MAX_DATA_AGE = 7200
+MAX_ALERTS = 5
+COOLDOWN_HOURS = 1
 
-# Ограничиваем число дополнительных API-запросов.
-MAX_CANDIDATES = 10
+DRY_RUN = True
 
-# Не более 50 лотов на один предмет.
-MAX_LOTS = 50
+ALERTS_FILE = Path("sent_alerts.json")
+PURCHASES_FILE = Path("purchases.json")
 
 
-# ===== ЧИСЛОВЫЕ ЗНАЧЕНИЯ =====
+def load_json(path, default):
+    if not path.exists():
+        return default
 
-def number(value):
     try:
-        result = float(value)
-        if math.isfinite(result):
-            return result
-    except (TypeError, ValueError, OverflowError):
-        pass
-
-    return None
+        with path.open("r", encoding="utf-8") as file:
+            return json.load(file)
+    except (json.JSONDecodeError, OSError):
+        return default
 
 
-# ===== ЗАГРУЗКА ПРАЙС-ЛИСТА =====
-
-async def get_market_prices(client):
-    response = await client.get(PRICES_URL)
-    response.raise_for_status()
-
-    data = response.json()
-
-    if not isinstance(data, dict):
-        raise ValueError("Invalid prices response")
-
-    if data.get("success") is not True:
-        raise ValueError("Market prices API error")
-
-    if data.get("currency") != "RUB":
-        raise ValueError("Unexpected currency")
-
-    timestamp = number(data.get("time"))
-
-    if timestamp is None:
-        raise ValueError("Missing market timestamp")
-
-    if abs(time.time() - timestamp) > MAX_DATA_AGE:
-        raise ValueError("Market data is outdated")
-
-    items = data.get("items")
-
-    if not isinstance(items, dict):
-        raise ValueError("Invalid market items")
-
-    return items
+def save_json(path, data):
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(
+            data,
+            file,
+            ensure_ascii=False,
+            indent=2,
+        )
 
 
-# ===== ПОЛУЧЕНИЕ РЕАЛЬНЫХ ЛОТОВ =====
+def get_remaining_budget(purchases):
+    spent = sum(
+        float(item.get("price", 0))
+        for item in purchases
+    )
+    return max(0.0, TOTAL_BUDGET - spent)
 
-async def get_live_lots(client, api_key, name):
-    response = await client.get(
-        LOTS_URL,
-        params={
-            "key": api_key,
-            "list_hash_name[]": name,
-        },
+
+def recently_alerted(name, alerts, now):
+    last_sent = alerts.get(name)
+
+    if not last_sent:
+        return False
+
+    try:
+        last_time = datetime.fromisoformat(last_sent)
+        if last_time.tzinfo is None:
+            last_time = last_time.replace(tzinfo=timezone.utc)
+
+        return now - last_time < timedelta(
+            hours=COOLDOWN_HOURS
+        )
+    except (ValueError, TypeError):
+        return False
+
+
+async def send_telegram(message):
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    owner_id = os.getenv("TELEGRAM_OWNER_ID", "").strip()
+
+    if not token or not owner_id:
+        print("Telegram credentials missing")
+        return False
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(
+                url,
+                json={
+                    "chat_id": owner_id,
+                    "text": message,
+                },
+            )
+            response.raise_for_status()
+
+        return True
+
+    except httpx.HTTPError as error:
+        print("Telegram sending failed:", type(error).__name__)
+        return False
+
+
+def format_signal(item, profit, profit_percent):
+    name = item.get("name", "Unknown item")
+    price = float(item["buy_price"])
+    reference = float(item.get("sell_reference", 0))
+    item_id = item.get("item_id", "N/A")
+
+    return (
+        "CS2 MARKET SIGNAL\n\n"
+        f"Предмет: {name}\n"
+        f"Цена покупки: {price:.2f} ₽\n"
+        f"Ориентир продажи: {reference:.2f} ₽\n"
+        f"Расчётная прибыль: {profit:.2f} ₽\n"
+        f"Доходность: {profit_percent:.1f}%\n"
+        f"ID лота: {item_id}\n\n"
+        "Это расчётный сигнал, не гарантия прибыли.\n"
+        "Реальная покупка отключена."
     )
 
-    response.raise_for_status()
-    data = response.json()
 
-    if not isinstance(data, dict):
-        raise ValueError("Invalid lots response")
+async def main():
+    print("CS2 BOT STARTED")
+    print("DRY RUN:", DRY_RUN)
+    print("Budget:", TOTAL_BUDGET, "RUB")
+    print("Max item price:", MAX_ITEM_PRICE, "RUB")
 
-    if data.get("success") is not True:
-        raise ValueError("Market lots API error")
+    alerts = load_json(ALERTS_FILE, {})
+    purchases = load_json(PURCHASES_FILE, [])
 
-    if data.get("currency") != "RUB":
-        raise ValueError("Unexpected lots currency")
+    if not isinstance(alerts, dict):
+        alerts = {}
 
-    items = data.get("data")
+    if not isinstance(purchases, list):
+        purchases = []
 
-    if not isinstance(items, dict):
-        raise ValueError("Invalid lots data")
+    remaining = get_remaining_budget(purchases)
 
-    offers = items.get(name, [])
+    print(f"Remaining budget: {remaining:.2f} RUB")
 
-    if not isinstance(offers, list):
-        raise ValueError("Invalid offers list")
+    print("STARTING MARKET SCANNER")
 
-    valid_lots = []
+    opportunities = scan()
 
-    for offer in offers[:MAX_LOTS]:
-        if not isinstance(offer, dict):
-            continue
+    if asyncio.iscoroutine(opportunities):
+        opportunities = await opportunities
 
-        lot_id = offer.get("id")
-        raw_price = number(offer.get("price"))
-
-        if (
-            not isinstance(lot_id, int)
-            or isinstance(lot_id, bool)
-            or lot_id <= 0
-            or raw_price is None
-            or raw_price <= 0
-        ):
-            continue
-
-        # В этом методе API цена приходит в копейках.
-        price_rub = raw_price / 100
-
-        if not MIN_PRICE <= price_rub <= MAX_PRICE:
-            continue
-
-        valid_lots.append({
-            "item_id": lot_id,
-            "price": price_rub,
-        })
-
-    valid_lots.sort(
-        key=lambda lot: lot["price"]
-    )
-
-    return valid_lots
-
-
-# ===== ОСНОВНОЙ СКАНЕР =====
-
-async def scan():
-    api_key = os.environ.get(
-        "MARKET_CSGO_API_KEY"
-    )
-
-    if not api_key:
+    if not isinstance(opportunities, list):
         raise RuntimeError(
-            "MARKET_CSGO_API_KEY is missing"
+            "Scanner must return a list of opportunities"
         )
 
-    print("MARKET LIVE SCANNER STARTED")
+    print("Scanner returned:", len(opportunities))
 
-    async with httpx.AsyncClient(
-        timeout=30
-    ) as client:
+    now = datetime.now(timezone.utc)
 
-        market_items = await get_market_prices(
-            client
-        )
+    alerts_sent = 0
+    virtual_purchases = 0
 
-        candidates = {}
+    for item in opportunities:
+        if alerts_sent >= MAX_ALERTS:
+            break
 
-        # ===== ПЕРВИЧНЫЙ ОТБОР =====
+        try:
+            name = str(item["name"])
+            price = float(item["buy_price"])
 
-        for item in market_items.values():
-            if not isinstance(item, dict):
-                continue
-
-            name = item.get("market_hash_name")
-
-            if not isinstance(name, str) or not name:
-                continue
-
-            price = number(item.get("price"))
-            avg_price = number(
-                item.get("avg_price")
-            )
-            bid = number(
-                item.get("buy_order")
-            )
-            popularity = number(
-                item.get("popularity_7d")
-            )
-
-            if any(
-                value is None
-                for value in (
-                    price,
-                    avg_price,
-                    bid,
-                    popularity,
+            reference = float(
+                item.get(
+                    "sell_reference",
+                    item.get("buy_order", 0),
                 )
-            ):
-                continue
-
-            if not MIN_PRICE <= price <= MAX_PRICE:
-                continue
-
-            if avg_price <= 0 or bid <= 0:
-                continue
-
-            if popularity < MIN_POPULARITY_7D:
-                continue
-
-            preliminary_profit = (
-                bid * (1 - FEE) - price
             )
 
-            if preliminary_profit < MIN_MARGIN:
+            if price <= 0 or reference <= 0:
                 continue
 
-            preliminary_percent = (
-                preliminary_profit / price * 100
-            )
+            profit = reference * (1 - SELL_FEE) - price
+            profit_percent = profit / price * 100
 
-            if (
-                preliminary_percent
-                < MIN_PROFIT_PERCENT
-            ):
-                continue
+        except (KeyError, TypeError, ValueError):
+            print("Skipping invalid signal")
+            continue
 
-            candidate = {
-                "name": name,
-                "avg_price": avg_price,
-                "bid": bid,
-                "popularity": popularity,
-                "preliminary_profit": (
-                    preliminary_profit
-                ),
-            }
+        if price > MAX_ITEM_PRICE:
+            continue
 
-            previous = candidates.get(name)
+        if price > remaining:
+            continue
 
-            if (
-                previous is None
-                or preliminary_profit
-                > previous["preliminary_profit"]
-            ):
-                candidates[name] = candidate
+        if profit < MIN_MARGIN:
+            continue
 
-        ranked = sorted(
-            candidates.values(),
-            key=lambda x: x["preliminary_profit"],
-            reverse=True,
+        if profit_percent < MIN_PROFIT_PERCENT:
+            continue
+
+        if recently_alerted(name, alerts, now):
+            print("Cooldown:", name)
+            continue
+
+        message = format_signal(
+            item,
+            profit,
+            profit_percent,
         )
 
-        print(
-            "Preliminary candidates:",
-            len(ranked)
-        )
+        sent = await send_telegram(message)
 
-        # ===== ПРОВЕРКА РЕАЛЬНЫХ ЛОТОВ =====
+        if not sent:
+            continue
 
-        opportunities = []
+        alerts[name] = now.isoformat()
+        alerts_sent += 1
 
-        for candidate in ranked[:MAX_CANDIDATES]:
-            name = candidate["name"]
+        print("ALERT SENT:", name)
 
-            try:
-                lots = await get_live_lots(
-                    client,
-                    api_key,
-                    name,
-                )
-
-            except (
-                httpx.HTTPError,
-                ValueError,
-            ) as error:
-                print(
-                    "Lot check failed:",
-                    name,
-                    type(error).__name__,
-                )
-                continue
-
-            if not lots:
-                continue
-
-            best_lot = lots[0]
-
-            buy_price = best_lot["price"]
-            bid = candidate["bid"]
-
-            estimated_sale = bid * (1 - FEE)
-
-            profit = estimated_sale - buy_price
-
-            if profit < MIN_MARGIN:
-                continue
-
-            profit_percent = (
-                profit / buy_price * 100
+        if DRY_RUN:
+            purchases.append(
+                {
+                    "name": name,
+                    "price": round(price, 2),
+                    "item_id": item.get("item_id"),
+                    "timestamp": now.isoformat(),
+                    "mode": "DRY_RUN",
+                }
             )
 
-            if (
-                profit_percent
-                < MIN_PROFIT_PERCENT
-            ):
-                continue
-
-            avg_price = candidate["avg_price"]
-
-            discount = (
-                (avg_price - buy_price)
-                / avg_price * 100
-            )
-
-            opportunity = {
-                # Поля для monitor.py
-                "name": name,
-                "buy_price": round(
-                    buy_price, 2
-                ),
-                "sell_reference": round(
-                    bid, 2
-                ),
-                "buy_order": round(
-                    bid, 2
-                ),
-                "spread": round(
-                    discount, 2
-                ),
-                "reference_margin": round(
-                    profit, 2
-                ),
-                "volume": int(
-                    candidate["popularity"]
-                ),
-                "profit_percent": round(
-                    profit_percent, 2
-                ),
-
-                # Дополнительные поля
-                "item_id": best_lot["item_id"],
-                "live_lots_count": len(lots),
-                "price_source": "LIVE_LOT",
-            }
-
-            opportunities.append(opportunity)
+            remaining -= price
+            virtual_purchases += 1
 
             print(
-                "LIVE SIGNAL:",
-                name,
-                "Lot ID:",
-                best_lot["item_id"],
-                "Buy:",
-                round(buy_price, 2),
-                "Estimated profit:",
-                round(profit, 2),
+                f"[DRY RUN] Virtual purchase: {name}, "
+                f"price {price:.2f} RUB"
             )
 
-        opportunities.sort(
-            key=lambda item: (
-                item["reference_margin"]
-            ),
-            reverse=True,
-        )
+        else:
+            print(
+                "LIVE TRADING DISABLED: "
+                "real purchase API not implemented"
+            )
 
-        print(
-            "Подходящих сигналов:",
-            len(opportunities)
-        )
+    save_json(ALERTS_FILE, alerts)
+    save_json(PURCHASES_FILE, purchases)
 
-        print("MARKET LIVE SCAN COMPLETED")
+    print("SCAN COMPLETED")
+    print("Alerts sent:", alerts_sent)
+    print("Virtual purchases:", virtual_purchases)
+    print(
+        f"Remaining test budget: {remaining:.2f} RUB"
+    )
 
-        return opportunities
+
+if __name__ == "__main__":
+    asyncio.run(main())
