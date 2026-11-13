@@ -75,6 +75,10 @@ async def main():
                 continue
 
             buy_price = float(item["buy_price"])
+            
+            if buy_price <= 0 or buy_price > MAX_ITEM_PRICE:
+                continue
+
             avg_price = float(item["sell_reference"])
             activity = int(item["volume"])
             discount = float(item["spread"])
