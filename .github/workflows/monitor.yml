@@ -63,5 +63,13 @@ jobs:
             echo "No changes to save"
           else
             git commit -m "Save CS2 bot scanner progress"
-            git push
+
+            echo "Fetching latest repository changes"
+            git fetch origin main
+
+            echo "Rebasing scanner progress"
+            git rebase origin/main
+
+            echo "Pushing scanner progress"
+            git push origin HEAD:main
           fi
