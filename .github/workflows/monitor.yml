@@ -3,11 +3,9 @@ name: CS2 Market Monitor
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: cs2-market-monitor
@@ -23,8 +21,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: main
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -52,39 +49,3 @@ jobs:
           echo "STARTING CS2 BOT"
           python -u monitor.py
           echo "CS2 BOT FINISHED"
-
-      - name: Save scanner progress
-        if: success()
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add sent_alerts.json purchases.json scan_progress.json
-
-          if git diff --cached --quiet; then
-            echo "No changes to save"
-          else
-            git commit -m "Save CS2 bot scanner progress"
-
-            for attempt in 1 2 3; do
-              echo "Push attempt $attempt"
-
-              git fetch origin main
-
-              if ! git rebase origin/main; then
-                echo "Rebase conflict - stopping safely"
-                git rebase --abort
-                exit 1
-              fi
-
-              if git push origin HEAD:main; then
-                echo "Scanner progress saved"
-                exit 0
-              fi
-
-              sleep 5
-            done
-
-            echo "Failed to save scanner progress"
-            exit 1
-          fi
