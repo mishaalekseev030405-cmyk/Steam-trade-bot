@@ -17,7 +17,6 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-
     timeout-minutes: 10
 
     steps:
@@ -47,6 +46,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
           MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
+          DRY_RUN: "true"
         run: |
           echo "STARTING CS2 BOT"
           python -u monitor.py
