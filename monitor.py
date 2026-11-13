@@ -9,6 +9,10 @@ import httpx
 from scanner import scan
 
 MIN_MARGIN = 50
+DRY_RUN = True
+TOTAL_BUDGET = 3000
+MAX_ITEM_PRICE = 500
+MIN_PROFIT_PERCENT = 10
 MAX_ALERTS = 3
 COOLDOWN_HOURS = 24
 HISTORY_FILE = Path(__file__).parent / "sent_alerts.json"
