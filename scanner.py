@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
-from scanner import scan
 
 
 # ===== НАСТРОЙКИ =====
