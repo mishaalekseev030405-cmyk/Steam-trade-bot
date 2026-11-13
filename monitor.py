@@ -62,28 +62,57 @@ def recently_alerted(name, alerts, now):
 
     try:
         last_time = datetime.fromisoformat(last_sent)
+
         if last_time.tzinfo is None:
-            last_time = last_time.replace(tzinfo=timezone.utc)
+            last_time = last_time.replace(
+                tzinfo=timezone.utc
+            )
 
         return now - last_time < timedelta(
             hours=COOLDOWN_HOURS
         )
+
     except (ValueError, TypeError):
         return False
 
 
+def already_purchased(item, purchases):
+    item_id = item.get("item_id")
+
+    if item_id is None or str(item_id).strip() == "":
+        return True
+
+    item_id = str(item_id)
+
+    for purchase in purchases:
+        if str(purchase.get("item_id")) == item_id:
+            return True
+
+    return False
+
+
 async def send_telegram(message):
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    owner_id = os.getenv("TELEGRAM_OWNER_ID", "").strip()
+    token = os.getenv(
+        "TELEGRAM_BOT_TOKEN", ""
+    ).strip()
+
+    owner_id = os.getenv(
+        "TELEGRAM_OWNER_ID", ""
+    ).strip()
 
     if not token or not owner_id:
         print("Telegram credentials missing")
         return False
 
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{token}/sendMessage"
+    )
 
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with httpx.AsyncClient(
+            timeout=20
+        ) as client:
             response = await client.post(
                 url,
                 json={
@@ -96,14 +125,21 @@ async def send_telegram(message):
         return True
 
     except httpx.HTTPError as error:
-        print("Telegram sending failed:", type(error).__name__)
+        print(
+            "Telegram sending failed:",
+            type(error).__name__,
+        )
         return False
 
 
 def format_signal(item, profit, profit_percent):
     name = item.get("name", "Unknown item")
     price = float(item["buy_price"])
-    reference = float(item.get("sell_reference", 0))
+
+    reference = float(
+        item.get("sell_reference", 0)
+    )
+
     item_id = item.get("item_id", "N/A")
 
     return (
@@ -114,7 +150,8 @@ def format_signal(item, profit, profit_percent):
         f"Расчётная прибыль: {profit:.2f} ₽\n"
         f"Доходность: {profit_percent:.1f}%\n"
         f"ID лота: {item_id}\n\n"
-        "Это расчётный сигнал, не гарантия прибыли.\n"
+        "Это расчётный сигнал, "
+        "не гарантия прибыли.\n"
         "Реальная покупка отключена."
     )
 
@@ -136,7 +173,20 @@ async def main():
 
     remaining = get_remaining_budget(purchases)
 
-    print(f"Remaining budget: {remaining:.2f} RUB")
+    print(
+        f"Remaining budget: {remaining:.2f} RUB"
+    )
+
+    purchased_ids = {
+        str(purchase.get("item_id"))
+        for purchase in purchases
+        if purchase.get("item_id") is not None
+    }
+
+    print(
+        "Previously purchased lots:",
+        len(purchased_ids),
+    )
 
     print("STARTING MARKET SCANNER")
 
@@ -147,10 +197,13 @@ async def main():
 
     if not isinstance(opportunities, list):
         raise RuntimeError(
-            "Scanner must return a list of opportunities"
+            "Scanner must return a list"
         )
 
-    print("Scanner returned:", len(opportunities))
+    print(
+        "Scanner returned:",
+        len(opportunities),
+    )
 
     now = datetime.now(timezone.utc)
 
@@ -172,14 +225,38 @@ async def main():
                 )
             )
 
+            item_id = item.get("item_id")
+
+            if item_id is None:
+                print(
+                    "Skipping lot without ID:",
+                    name,
+                )
+                continue
+
             if price <= 0 or reference <= 0:
                 continue
 
-            profit = reference * (1 - SELL_FEE) - price
-            profit_percent = profit / price * 100
+            profit = (
+                reference * (1 - SELL_FEE)
+                - price
+            )
+
+            profit_percent = (
+                profit / price * 100
+            )
 
         except (KeyError, TypeError, ValueError):
             print("Skipping invalid signal")
+            continue
+
+        if already_purchased(item, purchases):
+            print(
+                "ALREADY PURCHASED:",
+                name,
+                "Lot ID:",
+                item_id,
+            )
             continue
 
         if price > MAX_ITEM_PRICE:
@@ -219,18 +296,22 @@ async def main():
                 {
                     "name": name,
                     "price": round(price, 2),
-                    "item_id": item.get("item_id"),
+                    "item_id": str(item_id),
                     "timestamp": now.isoformat(),
                     "mode": "DRY_RUN",
                 }
             )
 
+            purchased_ids.add(str(item_id))
+
             remaining -= price
             virtual_purchases += 1
 
             print(
-                f"[DRY RUN] Virtual purchase: {name}, "
-                f"price {price:.2f} RUB"
+                "[DRY RUN] Virtual purchase:",
+                name,
+                "Lot ID:",
+                item_id,
             )
 
         else:
@@ -244,9 +325,13 @@ async def main():
 
     print("SCAN COMPLETED")
     print("Alerts sent:", alerts_sent)
-    print("Virtual purchases:", virtual_purchases)
     print(
-        f"Remaining test budget: {remaining:.2f} RUB"
+        "Virtual purchases:",
+        virtual_purchases,
+    )
+    print(
+        "Remaining test budget:",
+        f"{remaining:.2f} RUB",
     )
 
 
