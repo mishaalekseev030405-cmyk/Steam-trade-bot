@@ -1,0 +1,26 @@
+
+name: Check Live Market Lots
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check-lots:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Check actual market lots
+        env:
+          MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
+        run: python check_live_lots.py
