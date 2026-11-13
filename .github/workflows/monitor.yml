@@ -1,9 +1,8 @@
 
 name: CS2 Market Monitor
 
-on:
+"on":
   workflow_dispatch:
-
   schedule:
     - cron: "2-59/5 * * * *"
 
