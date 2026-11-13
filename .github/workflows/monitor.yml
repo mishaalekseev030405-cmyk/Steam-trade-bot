@@ -32,7 +32,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      
       - name: Test Market API
         env:
           MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
@@ -45,12 +44,19 @@ jobs:
           MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
         run: python monitor.py
 
-      - name: Save alert history
+      - name: Save bot history
+        if: success()
         run: |
-          if ! git diff --quiet -- sent_alerts.json; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add sent_alerts.json purchases.json
-            git commit -m "Update sent alerts"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add sent_alerts.json
+
+          if [ -f purchases.json ]; then
+            git add purchases.json
+          fi
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Update CS2 bot history"
             git push
           fi
