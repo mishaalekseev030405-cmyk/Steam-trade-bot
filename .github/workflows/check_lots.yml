@@ -23,4 +23,4 @@ jobs:
       - name: Check actual market lots
         env:
           MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
-        run: python check_live_lots.py
+        run: python -u check_market_depth.py
