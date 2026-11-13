@@ -56,6 +56,35 @@ def save_history(history):
 
 # ===== TELEGRAM =====
 
+
+# История виртуальных покупок
+def load_purchases():
+    if not PURCHASES_FILE.exists():
+        return []
+
+    try:
+        data = json.loads(
+            PURCHASES_FILE.read_text(encoding="utf-8")
+        )
+        if isinstance(data, list):
+            return data
+    except (OSError, ValueError):
+        pass
+
+    raise RuntimeError(
+        "Не удалось загрузить историю покупок"
+    )
+
+
+def save_purchases(purchases):
+    PURCHASES_FILE.write_text(
+        json.dumps(
+            purchases,
+            ensure_ascii=False,
+            indent=2
+        ),
+        encoding="utf-8"
+    )
 async def send_telegram(client, token, owner, message):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
 
