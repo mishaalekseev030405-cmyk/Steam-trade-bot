@@ -11,7 +11,7 @@ API_URL = (
 )
 
 MIN_PRICE = 50
-MAX_PRICE = 5000
+MAX_PRICE = 500
 MIN_POPULARITY_7D = 20
 MIN_MARGIN = 50
 FEE = 0.10  # Предположение, проверить комиссию
