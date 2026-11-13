@@ -1,9 +1,9 @@
 
-import asyncio
 import math
 import time
 
 import httpx
+
 
 # ===== MARKET.CSGO =====
 
@@ -12,12 +12,15 @@ API_URL = (
     "prices/class_instance/RUB.json"
 )
 
+
 # ===== НАСТРОЙКИ =====
 
 MIN_PRICE = 50
 MAX_PRICE = 500
+
 MIN_POPULARITY_7D = 20
 MIN_MARGIN = 50
+
 FEE = 0.10
 MAX_DATA_AGE = 7200
 
@@ -27,8 +30,9 @@ def number(value):
         result = float(value)
         if math.isfinite(result):
             return result
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         pass
+
     return None
 
 
@@ -41,8 +45,13 @@ async def scan():
         response.raise_for_status()
         data = response.json()
 
+    # ===== ПРОВЕРКА API =====
+
+    if not isinstance(data, dict):
+        raise ValueError("Invalid Market API response")
+
     if data.get("success") is not True:
-        raise ValueError("Market API error")
+        raise ValueError("Market API returned an error")
 
     if data.get("currency") != "RUB":
         raise ValueError("Unexpected currency")
@@ -62,6 +71,8 @@ async def scan():
 
     opportunities = {}
 
+    # ===== АНАЛИЗ ПРЕДМЕТОВ =====
+
     for item in items.values():
 
         if not isinstance(item, dict):
@@ -75,11 +86,17 @@ async def scan():
         buy_price = number(item.get("price"))
         avg_price = number(item.get("avg_price"))
         bid = number(item.get("buy_order"))
-        popularity = number(item.get("popularity_7d"))
+
+        popularity = number(
+            item.get("popularity_7d")
+        )
+
+        # ===== ПРОВЕРКА ДАННЫХ =====
 
         if (
             buy_price is None
             or avg_price is None
+            or bid is None
             or popularity is None
         ):
             continue
@@ -87,33 +104,55 @@ async def scan():
         if not MIN_PRICE <= buy_price <= MAX_PRICE:
             continue
 
-        if (
-            avg_price <= 0
-            or popularity < MIN_POPULARITY_7D
-        ):
+        if avg_price <= 0:
             continue
 
-        estimated_sale = avg_price * (1 - FEE)
-        estimated_margin = estimated_sale - buy_price
+        if popularity < MIN_POPULARITY_7D:
+            continue
+
+        # ===== ПРОВЕРКА ЗАЯВКИ =====
+
+        if bid <= 0:
+            continue
+
+        # ===== РАСЧЁТ ПРИБЫЛИ =====
+
+        estimated_sale = bid * (1 - FEE)
+
+        estimated_margin = (
+            estimated_sale - buy_price
+        )
+
+        if estimated_margin <= 0:
+            continue
 
         if estimated_margin < MIN_MARGIN:
             continue
 
+        profit_percent = (
+            estimated_margin / buy_price
+        ) * 100
+
         discount = (
             (avg_price - buy_price)
-            / avg_price * 100
-        )
+            / avg_price
+        ) * 100
+
+        # ===== РЕЗУЛЬТАТ =====
 
         candidate = {
             "name": name,
-            "sell_reference": round(avg_price, 2),
-            "buy_order": round(bid or 0, 2),
+            "buy_price": round(buy_price, 2),
+            "sell_reference": round(bid, 2),
+            "buy_order": round(bid, 2),
             "spread": round(discount, 2),
             "reference_margin": round(
                 estimated_margin, 2
             ),
             "volume": int(popularity),
-            "buy_price": round(buy_price, 2)
+            "profit_percent": round(
+                profit_percent, 2
+            ),
         }
 
         previous = opportunities.get(name)
@@ -124,6 +163,8 @@ async def scan():
             > previous["reference_margin"]
         ):
             opportunities[name] = candidate
+
+    # ===== СОРТИРОВКА =====
 
     results = sorted(
         opportunities.values(),
@@ -136,10 +177,3 @@ async def scan():
     )
 
     return results
-
-
-if __name__ == "__main__":
-    results = asyncio.run(scan())
-
-    for item in results[:10]:
-        print(item)
