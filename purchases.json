@@ -1,1 +1,26 @@
-[]
+[
+  {
+    "name": "Five-SeveN | Heat Treated (Field-Tested)",
+    "buy_price": 191.22,
+    "sell_reference": 422.8,
+    "estimated_profit": 189.3,
+    "purchased_at": "2026-11-13T19:47:09.697586+00:00",
+    "mode": "DRY_RUN"
+  },
+  {
+    "name": "UMP-45 | Crimson Foil (Field-Tested)",
+    "buy_price": 190.02,
+    "sell_reference": 413.52,
+    "estimated_profit": 182.15,
+    "purchased_at": "2026-11-13T19:47:09.887855+00:00",
+    "mode": "DRY_RUN"
+  },
+  {
+    "name": "M4A1-S | Solitude (Minimal Wear)",
+    "buy_price": 300.82,
+    "sell_reference": 431.9,
+    "estimated_profit": 87.89,
+    "purchased_at": "2026-11-13T19:47:10.077355+00:00",
+    "mode": "DRY_RUN"
+  }
+]
