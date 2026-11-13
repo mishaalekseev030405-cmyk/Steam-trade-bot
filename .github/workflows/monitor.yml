@@ -45,8 +45,6 @@ jobs:
           MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
         run: python monitor.py
 
-        run: python monitor.py
-
       - name: Save alert history
         run: |
           if ! git diff --quiet -- sent_alerts.json; then
