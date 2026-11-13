@@ -111,7 +111,17 @@ async def main():
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     owner = os.environ["TELEGRAM_OWNER_ID"]
 
-    remaining_budget = TOTAL_BUDGET
+    purchases = load_purchases()
+
+spent = sum(
+    float(item["buy_price"])
+    for item in purchases
+)
+
+remaining_budget = max(
+    0.0,
+    TOTAL_BUDGET - spent
+)
 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=COOLDOWN_HOURS)
