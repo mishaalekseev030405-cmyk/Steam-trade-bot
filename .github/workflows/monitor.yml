@@ -36,14 +36,18 @@ jobs:
       - name: Test Market API
         env:
           MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
-        run: python check_api.py
+        run: python -u check_api.py
 
       - name: Check market
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
           MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
-        run: python monitor.py
+          PYTHONUNBUFFERED: "1"
+        run: |
+          echo "STARTING CS2 BOT"
+          python -u monitor.py
+          echo "CS2 BOT FINISHED"
 
       - name: Save bot history
         if: success()
