@@ -6,7 +6,7 @@ import time
 import httpx
 
 
-# ===== MARKET.CSGO =====
+# ===== MARKET.CSGO API =====
 
 BASE_URL = "https://market.csgo.com/api/v2/"
 
@@ -49,7 +49,7 @@ def number(value):
     return None
 
 
-# ===== ПОЛУЧЕНИЕ ПРАЙС-ЛИСТА =====
+# ===== ОБЩИЙ ПРАЙС-ЛИСТ =====
 
 async def get_market_prices(client):
     response = await client.get(PRICES_URL)
@@ -82,7 +82,7 @@ async def get_market_prices(client):
     return items
 
 
-# ===== ПРОВЕРКА РЕАЛЬНЫХ ЛОТОВ =====
+# ===== РЕАЛЬНЫЕ ЛОТЫ =====
 
 async def get_live_lots(client, api_key, name):
     response = await client.get(
@@ -134,7 +134,6 @@ async def get_live_lots(client, api_key, name):
         ):
             continue
 
-        # Цена лота в копейках
         price_rub = raw_price / 100
 
         if not MIN_PRICE <= price_rub <= MAX_PRICE:
@@ -265,7 +264,7 @@ async def scan():
             len(ranked)
         )
 
-        # ===== ПРОВЕРКА ЛОТОВ =====
+        # ===== ПРОВЕРКА РЕАЛЬНЫХ ЛОТОВ =====
 
         opportunities = []
 
