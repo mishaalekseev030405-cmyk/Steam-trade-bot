@@ -6,27 +6,28 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
+
 from scanner import scan
 
 
 # ===== НАСТРОЙКИ =====
 
-DRY_RUN = True
-
 TOTAL_BUDGET = 3000.0
 MAX_ITEM_PRICE = 500.0
+
+MIN_MARGIN = 50.0
 MIN_PROFIT_PERCENT = 10.0
 
 SELL_FEE = 0.10
-MIN_MARGIN = 50.0
 
-MAX_ALERTS = 3
+MAX_ALERTS = 5
 COOLDOWN_HOURS = 24
 
-BASE_DIR = Path(__file__).parent
+# Только тестовый режим.
+DRY_RUN = True
 
-HISTORY_FILE = BASE_DIR / "sent_alerts.json"
-PURCHASES_FILE = BASE_DIR / "purchases.json"
+HISTORY_FILE = Path("sent_alerts.json")
+PURCHASES_FILE = Path("purchases.json")
 
 
 # ===== РАБОТА С JSON =====
@@ -36,57 +37,91 @@ def read_json(path, default):
         return default
 
     try:
-        data = json.loads(
-            path.read_text(encoding="utf-8")
-        )
-        if isinstance(data, type(default)):
-            return data
-    except (OSError, ValueError):
-        pass
-
-    raise RuntimeError(
-        f"Не удалось прочитать файл {path.name}"
-    )
+        with path.open(
+            "r", encoding="utf-8"
+        ) as file:
+            return json.load(file)
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+    ):
+        return default
 
 
 def write_json(path, data):
-    temp = path.with_suffix(".tmp")
-
-    temp.write_text(
-        json.dumps(
-            data,
-            ensure_ascii=False,
-            indent=2
-        ),
-        encoding="utf-8"
+    temporary = path.with_name(
+        path.name + ".tmp"
     )
 
-    temp.replace(path)
+    with temporary.open(
+        "w", encoding="utf-8"
+    ) as file:
+        json.dump(
+            data,
+            file,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    temporary.replace(path)
 
 
 def load_history():
-    data = read_json(HISTORY_FILE, {})
-    return data.get("sent", {})
+    data = read_json(
+        HISTORY_FILE,
+        {"sent": {}},
+    )
+
+    if not isinstance(data, dict):
+        return {}
+
+    sent = data.get("sent", {})
+
+    if not isinstance(sent, dict):
+        return {}
+
+    return sent
 
 
 def save_history(history):
     write_json(
         HISTORY_FILE,
-        {"sent": history}
+        {"sent": history},
     )
 
 
 def load_purchases():
-    return read_json(PURCHASES_FILE, [])
+    data = read_json(
+        PURCHASES_FILE,
+        [],
+    )
+
+    if not isinstance(data, list):
+        return []
+
+    return [
+        item for item in data
+        if isinstance(item, dict)
+        and item.get("mode") == "DRY_RUN"
+    ]
 
 
 def save_purchases(purchases):
-    write_json(PURCHASES_FILE, purchases)
+    write_json(
+        PURCHASES_FILE,
+        purchases,
+    )
 
 
 # ===== TELEGRAM =====
 
-async def send_telegram(client, token, owner, message):
+async def send_telegram(
+    client,
+    token,
+    owner,
+    message,
+):
     url = (
         f"https://api.telegram.org/"
         f"bot{token}/sendMessage"
@@ -96,37 +131,44 @@ async def send_telegram(client, token, owner, message):
         url,
         json={
             "chat_id": owner,
-            "text": message
-        }
+            "text": message,
+        },
     )
 
     response.raise_for_status()
 
     data = response.json()
 
-    if not data.get("ok"):
+    if data.get("ok") is not True:
         raise RuntimeError(
-            f"Ошибка Telegram: "
-            f"{data.get('description', 'unknown')}"
+            "Telegram API rejected message"
         )
+
+    return True
 
 
 # ===== ОСНОВНАЯ ПРОГРАММА =====
 
 async def main():
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    owner = os.environ["TELEGRAM_OWNER_ID"]
+
+    token = os.environ[
+        "TELEGRAM_BOT_TOKEN"
+    ]
+
+    owner = os.environ[
+        "TELEGRAM_OWNER_ID"
+    ]
 
     purchases = load_purchases()
 
     spent = sum(
-        float(item["buy_price"])
+        float(item.get("buy_price", 0))
         for item in purchases
     )
 
     remaining_budget = max(
         0.0,
-        TOTAL_BUDGET - spent
+        TOTAL_BUDGET - spent,
     )
 
     now = datetime.now(timezone.utc)
@@ -138,7 +180,10 @@ async def main():
     old_history = load_history()
     history = {}
 
+    # ===== ИСТОРИЯ СИГНАЛОВ =====
+
     for name, timestamp in old_history.items():
+
         try:
             sent_at = datetime.fromisoformat(
                 timestamp
@@ -152,7 +197,11 @@ async def main():
             if sent_at > cutoff:
                 history[name] = timestamp
 
-        except (TypeError, ValueError):
+        except (
+            TypeError,
+            ValueError,
+            AttributeError,
+        ):
             continue
 
     print("CS2 BOT STARTED")
@@ -166,6 +215,8 @@ async def main():
         f"Remaining budget: "
         f"{remaining_budget:.2f} RUB"
     )
+
+    # ===== СКАНИРОВАНИЕ =====
 
     items = await scan()
 
@@ -181,29 +232,41 @@ async def main():
     ) as client:
 
         for item in items:
+
             if sent >= MAX_ALERTS:
                 break
 
-            name = str(item["name"])
+            name = str(
+                item.get("name", "")
+            )
+
+            if not name:
+                continue
 
             if name in history:
                 continue
 
-            buy_price = float(
-                item["buy_price"]
-            )
+            try:
+                buy_price = float(
+                    item["buy_price"]
+                )
 
-            avg_price = float(
-                item["sell_reference"]
-            )
+                sell_reference = float(
+                    item["sell_reference"]
+                )
 
-            activity = int(
-                item["volume"]
-            )
+                activity = int(
+                    item["volume"]
+                )
 
-            discount = float(
-                item["spread"]
-            )
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            # ===== ПРОВЕРКА ЦЕНЫ =====
 
             if (
                 buy_price <= 0
@@ -211,12 +274,21 @@ async def main():
             ):
                 continue
 
-            if avg_price <= 0:
+            if sell_reference <= 0:
                 continue
 
+            if buy_price > remaining_budget:
+                continue
+
+            # ===== РАСЧЁТ ПРИБЫЛИ =====
+
+            estimated_sale = (
+                sell_reference
+                * (1 - SELL_FEE)
+            )
+
             net_profit = (
-                avg_price * (1 - SELL_FEE)
-                - buy_price
+                estimated_sale - buy_price
             )
 
             profit_percent = (
@@ -232,8 +304,7 @@ async def main():
             ):
                 continue
 
-            if buy_price > remaining_budget:
-                continue
+            # ===== TELEGRAM СООБЩЕНИЕ =====
 
             message = (
                 "🔎 CS2 — потенциальная "
@@ -241,28 +312,29 @@ async def main():
                 f"🎮 {name}\n\n"
                 f"🛒 Цена покупки: "
                 f"{buy_price:.2f} ₽\n"
-                f"📈 Историческая средняя: "
-                f"{avg_price:.2f} ₽\n"
-                f"📉 Разница с исторической "
-                f"ценой: {discount:.1f}%\n"
+                f"📉 Ориентир продажи "
+                f"(buy_order): "
+                f"{sell_reference:.2f} ₽\n"
                 f"💰 Расчётная прибыль: "
                 f"{net_profit:.2f} ₽\n"
                 f"📊 Доходность: "
                 f"{profit_percent:.1f}%\n"
-                f"📊 Активность за 7 дней: "
+                f"📈 Активность за 7 дней: "
                 f"{activity}\n\n"
-                "⚠️ Это оценка, а не "
-                "гарантированная прибыль. "
-                "Проверь текущие лоты, "
-                "комиссии и ликвидность."
+                "⚠️ Это предварительная "
+                "оценка, не гарантированная "
+                "прибыль. Проверь реальные "
+                "лоты, комиссии, ликвидность "
+                "и возможность продажи."
             )
 
-            # Сначала отправляем сигнал
+            # ===== ОТПРАВКА =====
+
             await send_telegram(
                 client,
                 token,
                 owner,
-                message
+                message,
             )
 
             history[name] = (
@@ -272,14 +344,19 @@ async def main():
             )
 
             save_history(history)
+
             sent += 1
 
-            # Виртуальная покупка
+            # ===== ТЕСТОВАЯ ПОКУПКА =====
+
             if DRY_RUN:
+
                 purchase = {
                     "name": name,
                     "buy_price": buy_price,
-                    "sell_reference": avg_price,
+                    "sell_reference": (
+                        sell_reference
+                    ),
                     "estimated_profit": round(
                         net_profit, 2
                     ),
@@ -288,7 +365,7 @@ async def main():
                             timezone.utc
                         ).isoformat()
                     ),
-                    "mode": "DRY_RUN"
+                    "mode": "DRY_RUN",
                 }
 
                 purchases.append(purchase)
@@ -306,6 +383,13 @@ async def main():
                     f"цена {buy_price:.2f} ₽, "
                     f"остаток "
                     f"{remaining_budget:.2f} ₽"
+                )
+
+            else:
+                print(
+                    "LIVE TRADING DISABLED: "
+                    "Real purchases are not "
+                    "implemented."
                 )
 
     save_history(history)
