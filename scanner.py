@@ -1,31 +1,41 @@
 
 import os
 import time
+from datetime import datetime, timezone
+
 import httpx
+
 
 BASE_URL = "https://market.csgo.com/api/v2"
 
-MAX_PRICE = 500.0
 MIN_PRICE = 50.0
+MAX_PRICE = 500.0
+
 MIN_PROFIT = 50.0
 MIN_PROFIT_PERCENT = 10.0
-MIN_POPULARITY_7D = 20
 
+MIN_SALES_7D = 20
 SELL_FEE = 0.10
-MAX_CANDIDATES = 10
-REQUEST_DELAY = 0.3
+
+MAX_CANDIDATES = 30
+MAX_HISTORY_AGE_HOURS = 6
+
+REQUEST_DELAY = 0.35
 
 
 def number(value, default=0.0):
     try:
-        return float(value)
+        result = float(value)
+        if not (result >= 0 and result < float("inf")):
+            return default
+        return result
     except (TypeError, ValueError):
         return default
 
 
-def get_json(client, url, params=None):
+def fetch(client, path, params=None):
     response = client.get(
-        url,
+        f"{BASE_URL}/{path}",
         params=params,
     )
     response.raise_for_status()
@@ -36,24 +46,26 @@ def get_json(client, url, params=None):
         raise ValueError("Invalid API response")
 
     if result.get("success") is False:
-        raise RuntimeError(
-            "Market API returned success=false"
-        )
+        raise RuntimeError("Market API error")
 
     return result
 
 
+def rub(value):
+    if isinstance(value, dict):
+        return number(value.get("RUB"))
+    return 0.0
+
+
 def scan():
-    print("MARKET LIVE SCANNER STARTED")
+    print("HISTORY VERIFIED SCANNER STARTED")
 
     api_key = os.getenv(
         "MARKET_CSGO_API_KEY", ""
     ).strip()
 
     if not api_key:
-        raise RuntimeError(
-            "MARKET_CSGO_API_KEY is missing"
-        )
+        raise RuntimeError("Market API key missing")
 
     opportunities = []
 
@@ -62,22 +74,28 @@ def scan():
         follow_redirects=True,
     ) as client:
 
-        catalog = get_json(
+        catalog = fetch(
             client,
-            f"{BASE_URL}/prices/class_instance/RUB.json",
+            "prices/class_instance/RUB.json",
         )
 
         if catalog.get("currency") != "RUB":
-            raise RuntimeError(
-                "Catalog currency is not RUB"
-            )
+            raise RuntimeError("Catalog currency mismatch")
 
         items = catalog.get("items", {})
 
         if not isinstance(items, dict):
-            raise RuntimeError(
-                "Invalid catalog items"
-            )
+            raise RuntimeError("Invalid catalog")
+
+        history_index = fetch(
+            client,
+            "full-history/all.json",
+        )
+
+        history_ids = history_index.get("history", {})
+
+        if not isinstance(history_ids, dict):
+            raise RuntimeError("Invalid history index")
 
         candidates = []
 
@@ -91,64 +109,103 @@ def scan():
                 continue
 
             ask = number(item.get("price"))
-            bid = number(item.get("buy_order"))
-            popularity = number(
-                item.get("popularity_7d")
-            )
 
             if not MIN_PRICE <= ask <= MAX_PRICE:
                 continue
 
-            if popularity < MIN_POPULARITY_7D:
-                continue
+            history_id = history_ids.get(name)
 
-            if bid <= 0:
-                continue
-
-            # Only a buy order is treated as
-            # a possible immediate sale price.
-            profit = bid * (1 - SELL_FEE) - ask
-
-            if profit < MIN_PROFIT:
-                continue
-
-            profit_percent = profit / ask * 100
-
-            if profit_percent < MIN_PROFIT_PERCENT:
+            if history_id is None:
                 continue
 
             candidates.append({
                 "name": name,
                 "catalog_ask": ask,
-                "buy_order": bid,
-                "volume": popularity,
-                "preliminary_profit": profit,
+                "history_id": history_id,
             })
 
         candidates.sort(
-            key=lambda x: x["preliminary_profit"],
-            reverse=True,
+            key=lambda x: x["catalog_ask"]
         )
 
+        # Limit requests for each scan.
         candidates = candidates[:MAX_CANDIDATES]
 
         print(
-            "Preliminary candidates:",
+            "Candidates for history check:",
             len(candidates),
         )
 
         for candidate in candidates:
-            time.sleep(REQUEST_DELAY)
-
             name = candidate["name"]
 
             try:
-                live = get_json(
+                time.sleep(REQUEST_DELAY)
+
+                history = fetch(
                     client,
                     (
-                        f"{BASE_URL}/"
-                        "search-list-items-by-hash-name-all"
+                        "full-history/"
+                        f"{candidate['history_id']}.json"
                     ),
+                )
+
+                data = history.get("data", {})
+
+                if not isinstance(data, dict):
+                    continue
+
+                updated_at = number(
+                    history.get("time")
+                )
+
+                age_hours = (
+                    datetime.now(timezone.utc).timestamp()
+                    - updated_at
+                ) / 3600
+
+                if (
+                    updated_at <= 0
+                    or age_hours < 0
+                    or age_hours > MAX_HISTORY_AGE_HOURS
+                ):
+                    print("STALE HISTORY:", name)
+                    continue
+
+                average_7d = rub(
+                    data.get("average7d")
+                )
+
+                average_30d = rub(
+                    data.get("average30d")
+                )
+
+                sales_7d = rub(
+                    data.get("sales7d")
+                )
+
+                if average_7d <= 0:
+                    continue
+
+                if sales_7d < MIN_SALES_7D:
+                    continue
+
+                # Conservative historical reference.
+                if average_30d > 0:
+                    sell_reference = min(
+                        average_7d,
+                        average_30d,
+                    )
+                else:
+                    sell_reference = average_7d
+
+                # A cheap catalog listing is not
+                # sufficient. Verify a real lot.
+                time.sleep(REQUEST_DELAY)
+
+                live = fetch(
+                    client,
+                    "search-list-items-by-hash-name-all",
                     params={
                         "key": api_key,
                         "list_hash_name[]": name,
@@ -156,15 +213,15 @@ def scan():
                 )
 
                 if live.get("currency") != "RUB":
-                    print("Currency mismatch:", name)
+                    print("Live currency mismatch:", name)
                     continue
 
-                data = live.get("data", {})
+                live_data = live.get("data", {})
 
-                if not isinstance(data, dict):
+                if not isinstance(live_data, dict):
                     continue
 
-                lots = data.get(name, [])
+                lots = live_data.get(name, [])
 
                 if not isinstance(lots, list):
                     continue
@@ -197,11 +254,9 @@ def scan():
                 )
 
                 buy_price = cheapest["price"]
-                buy_order = candidate["buy_order"]
 
-                # Conservative exit reference:
-                # highest published buy order.
-                sell_reference = buy_order
+                if not MIN_PRICE <= buy_price <= MAX_PRICE:
+                    continue
 
                 profit = (
                     sell_reference * (1 - SELL_FEE)
@@ -210,11 +265,18 @@ def scan():
 
                 profit_percent = (
                     profit / buy_price * 100
-                    if buy_price > 0 else 0
                 )
 
-                if not MIN_PRICE <= buy_price <= MAX_PRICE:
-                    continue
+                print(
+                    "HISTORY CHECK:",
+                    name,
+                    "Buy:",
+                    round(buy_price, 2),
+                    "Average 7d:",
+                    round(average_7d, 2),
+                    "Profit:",
+                    round(profit, 2),
+                )
 
                 if profit < MIN_PROFIT:
                     continue
@@ -222,13 +284,15 @@ def scan():
                 if profit_percent < MIN_PROFIT_PERCENT:
                     continue
 
-                signal = {
+                opportunities.append({
                     "name": name,
                     "buy_price": round(buy_price, 2),
                     "sell_reference": round(
                         sell_reference, 2
                     ),
-                    "buy_order": round(buy_order, 2),
+                    "buy_order": round(
+                        sell_reference, 2
+                    ),
                     "spread": round(
                         sell_reference - buy_price, 2
                     ),
@@ -238,23 +302,15 @@ def scan():
                     "profit_percent": round(
                         profit_percent, 2
                     ),
-                    "volume": candidate["volume"],
+                    "volume": int(sales_7d),
                     "item_id": cheapest["item_id"],
                     "live_lots_count": len(valid_lots),
-                    "price_source": "buy_order",
-                }
-
-                opportunities.append(signal)
+                    "price_source": "sales_history",
+                })
 
                 print(
-                    "VERIFIED BID SIGNAL:",
+                    "HISTORY VERIFIED SIGNAL:",
                     name,
-                    "Lot ID:",
-                    signal["item_id"],
-                    "Buy:",
-                    buy_price,
-                    "Bid:",
-                    sell_reference,
                     "Estimated profit:",
                     round(profit, 2),
                 )
@@ -265,7 +321,7 @@ def scan():
                 RuntimeError,
             ) as error:
                 print(
-                    "Live lot check failed:",
+                    "Check failed:",
                     name,
                     type(error).__name__,
                 )
@@ -280,11 +336,11 @@ def scan():
         len(opportunities),
     )
 
-    print("MARKET LIVE SCAN COMPLETED")
+    print("HISTORY VERIFIED SCAN COMPLETED")
 
     return opportunities
 
 
 if __name__ == "__main__":
     results = scan()
-    print("Scanner test results:", len(results))
+    print("Scanner results:", len(results))
