@@ -1,90 +1,126 @@
+
 import asyncio
+import math
+import time
+
 import httpx
 
-BASE = "https://market.csgo.com/api/v2/prices/"
+API_URL = (
+    "https://market.csgo.com/api/v2/"
+    "prices/class_instance/RUB.json"
+)
+
 MIN_PRICE = 50
 MAX_PRICE = 5000
-MIN_VOLUME = 20
-MAX_SPREAD = 30
-FEE = 0.10  # Предполагаемая комиссия
+MIN_POPULARITY_7D = 20
+MIN_MARGIN = 50
+FEE = 0.10  # Предположение, проверить комиссию
+MAX_DATA_AGE = 7200  # 2 часа
 
-async def get_items(client, url):
-    response = await client.get(url)
-    response.raise_for_status()
-    data = response.json()
 
-    if data.get("success") is not True:
-        raise ValueError("API returned an error")
+def number(value):
+    try:
+        result = float(value)
+        if math.isfinite(result):
+            return result
+    except (TypeError, ValueError):
+        pass
+    return None
 
-    if not isinstance(data.get("items"), list):
-        raise ValueError("Invalid items format")
-
-    return data["items"]
 
 async def scan():
-    async with httpx.AsyncClient(timeout=30) as client:
-        sales = await get_items(
-            client, BASE + "RUB.json"
-        )
-        orders = await get_items(
-            client,
-            "https://market.csgo.com/api/v2/prices/orders/RUB.json"
-        )
+    async with httpx.AsyncClient(timeout=45) as client:
+        response = await client.get(API_URL)
+        response.raise_for_status()
+        data = response.json()
 
-    order_map = {
-        x["market_hash_name"]: x
-        for x in orders
-        if x.get("market_hash_name")
-    }
+    if data.get("success") is not True:
+        raise ValueError("Market.CSGO API error")
 
-    results = []
+    if data.get("currency") != "RUB":
+        raise ValueError("Unexpected currency")
 
-    for item in sales:
+    timestamp = number(data.get("time"))
+    if timestamp is None:
+        raise ValueError("Missing market timestamp")
+
+    if abs(time.time() - timestamp) > MAX_DATA_AGE:
+        raise ValueError("Market data is outdated")
+
+    items = data.get("items")
+
+    if not isinstance(items, dict):
+        raise ValueError("Invalid market data")
+
+    opportunities = {}
+
+    for item in items.values():
+        if not isinstance(item, dict):
+            continue
+
         name = item.get("market_hash_name")
-        order = order_map.get(name)
-
-        if not order:
+        if not isinstance(name, str) or not name:
             continue
 
-        try:
-            sell = float(item["price"])
-            bid = float(order["price"])
-            volume = int(item.get("volume", 0))
-        except (KeyError, ValueError, TypeError):
+        buy_price = number(item.get("price"))
+        avg_price = number(item.get("avg_price"))
+        bid = number(item.get("buy_order"))
+        popularity = number(item.get("popularity_7d"))
+
+        if (
+            buy_price is None
+            or avg_price is None
+            or popularity is None
+        ):
             continue
 
-        if not MIN_PRICE <= sell <= MAX_PRICE:
+        if not MIN_PRICE <= buy_price <= MAX_PRICE:
             continue
 
-        if volume < MIN_VOLUME or bid <= 0:
+        if avg_price <= 0 or popularity < MIN_POPULARITY_7D:
             continue
 
-        spread = (sell - bid) / sell * 100
+        estimated_sale = avg_price * (1 - FEE)
+        estimated_margin = estimated_sale - buy_price
 
-        if not 0 < spread <= MAX_SPREAD:
+        if estimated_margin < MIN_MARGIN:
             continue
 
-        net_sell = sell * (1 - FEE)
-        margin = net_sell - bid
+        discount = (
+            (avg_price - buy_price) / avg_price * 100
+        )
 
-        results.append({
+        candidate = {
             "name": name,
-            "sell_reference": round(sell, 2),
-            "buy_order": round(bid, 2),
-            "spread": round(spread, 2),
-            "reference_margin": round(margin, 2),
-            "volume": volume
-        })
+            "sell_reference": round(avg_price, 2),
+            "buy_order": round(bid or 0, 2),
+            "spread": round(discount, 2),
+            "reference_margin": round(estimated_margin, 2),
+            "volume": int(popularity),
+            "buy_price": round(buy_price, 2),
+        }
 
-    return sorted(
-        results,
+        previous = opportunities.get(name)
+
+        if (
+            previous is None
+            or candidate["reference_margin"]
+            > previous["reference_margin"]
+        ):
+            opportunities[name] = candidate
+
+    results = sorted(
+        opportunities.values(),
         key=lambda x: x["reference_margin"],
-        reverse=True
+        reverse=True,
     )
 
-if __name__ == "__main__":
-    found = asyncio.run(scan())
-    print("Найдено:", len(found))
-    for item in found[:10]:
-        print(item)
+    print(f"Подходящих сигналов: {len(results)}")
+    return results
 
+
+if __name__ == "__main__":
+    results = asyncio.run(scan())
+
+    for item in results[:10]:
+        print(item)
