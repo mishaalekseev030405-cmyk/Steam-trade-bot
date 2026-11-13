@@ -1,6 +1,7 @@
 
 import asyncio
 import json
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,10 +20,10 @@ SELL_FEE = 0.10
 MAX_ALERTS = 5
 COOLDOWN_HOURS = 1
 
-DRY_RUN = True
+DRY_RUN = True  # Live trading is intentionally unavailable
 
-ALERTS_FILE = Path("sent_alerts.json")
-PURCHASES_FILE = Path("purchases.json")
+ALERTS_FILE = Path(__file__).resolve().parent / "sent_alerts.json"
+PURCHASES_FILE = Path(__file__).resolve().parent / "purchases.json"
 
 
 def load_json(path, default):
@@ -48,8 +49,8 @@ def save_json(path, data):
 
 def get_remaining_budget(purchases):
     spent = sum(
-        float(item.get("price", 0))
-        for item in purchases
+        float(item.get("price", item.get("buy_price", 0)))
+        for item in purchases if isinstance(item, dict) and item.get("mode") == "DRY_RUN"
     )
     return max(0.0, TOTAL_BUDGET - spent)
 
@@ -167,9 +168,13 @@ async def main():
 
     if not isinstance(alerts, dict):
         alerts = {}
+    if isinstance(alerts.get("sent"), dict):
+        alerts = {**alerts["sent"], **{k:v for k,v in alerts.items() if k != "sent"}}
 
     if not isinstance(purchases, list):
         purchases = []
+    if os.getenv("DRY_RUN", "true").lower() != "true":
+        raise RuntimeError("Live trading is not implemented; DRY_RUN must be true")
 
     remaining = get_remaining_budget(purchases)
 
@@ -234,7 +239,7 @@ async def main():
                 )
                 continue
 
-            if price <= 0 or reference <= 0:
+            if not math.isfinite(price) or not math.isfinite(reference) or price <= 0 or reference <= 0:
                 continue
 
             profit = (
@@ -271,7 +276,7 @@ async def main():
         if profit_percent < MIN_PROFIT_PERCENT:
             continue
 
-        if recently_alerted(name, alerts, now):
+        if recently_alerted(str(item_id), alerts, now):
             print("Cooldown:", name)
             continue
 
@@ -286,7 +291,7 @@ async def main():
         if not sent:
             continue
 
-        alerts[name] = now.isoformat()
+        alerts[str(item_id)] = now.isoformat()
         alerts_sent += 1
 
         print("ALERT SENT:", name)

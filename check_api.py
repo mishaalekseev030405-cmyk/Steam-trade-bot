@@ -1,28 +1,12 @@
-
-import os
-import asyncio
-import httpx
-
+import asyncio, os, httpx
 async def main():
-    key = os.getenv("MARKET_CSGO_API_KEY")
-
-    if not key:
-        print("ERROR: API key not found")
-        return
-
-    url = "https://market.csgo.com/api/v2/get-money"
-    params = {"key": key}
-
+    key=os.getenv('MARKET_CSGO_API_KEY','').strip()
+    if not key: raise RuntimeError('MARKET_CSGO_API_KEY missing')
     async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.get(url, params=params)
-        print("HTTP status:", response.status_code)
-
-        data = response.json()
-        print("API success:", data.get("success"))
-
-        if data.get("success"):
-            print("API connection successful")
-        else:
-            print("API error:", data.get("error"))
-
-asyncio.run(main())
+        response=await client.get('https://market.csgo.com/api/v2/get-money',params={'key':key})
+        response.raise_for_status()
+        data=response.json()
+        if not isinstance(data,dict) or data.get('success') is not True:
+            raise RuntimeError('Market API authentication or response failed')
+    print('Market API check OK')
+if __name__=='__main__': asyncio.run(main())

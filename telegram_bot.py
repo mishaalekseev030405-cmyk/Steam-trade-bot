@@ -53,7 +53,8 @@ def purchases():
 
 def alerts():
     data = load_json("sent_alerts.json", {})
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict): return {}
+    return {**data.get("sent", {}), **{k:v for k,v in data.items() if k != "sent"}}
 
 
 def progress():
@@ -65,7 +66,7 @@ def remaining():
     spent = 0.0
     for item in purchases():
         try:
-            spent += float(item.get("price", 0))
+            spent += float(item.get("price", item.get("buy_price", 0)))
         except (ValueError, TypeError):
             pass
     return max(0, BUDGET - spent)
@@ -138,7 +139,7 @@ def screen(section):
         for item in reversed(buys[-5:]):
             lines.append(
                 f"🎮 {safe(item.get('name', 'Предмет'))}\n"
-                f"💵 {money(float(item.get('price', 0)))}\n"
+                f"💵 {money(float(item.get('price', item.get('buy_price', 0))))}\n"
                 f"🕒 {format_time(item.get('timestamp'))}"
             )
 

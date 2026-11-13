@@ -1,94 +1,17 @@
-# Steam-trade-bot
-import asyncio
-import json
-import os
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+# Steam Trade Bot — safe monitoring build
 
-import httpx
-from scanner import scan
+**Simulation only. No real purchase or sell functionality is included.** Historical averages are NOT guaranteed executable sale prices. Never interpret signals as guaranteed profits.
 
-MIN_MARGIN = 50
-MAX_ALERTS = 3
-HISTORY_FILE = Path(__file__).parent / "sent_alerts.json"
+## Configuration
+Python 3.11+, `pip install -r requirements.txt`. Configure secrets `MARKET_CSGO_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_ID` in GitHub Settings → Secrets and variables → Actions. Never commit keys. If a token has ever been shared publicly, revoke it and create a new one.
 
+Edit `watchlist.json` with exact market hash names. The scanner checks up to 10 names per run and saves its cursor. It uses API listing prices in kopecks, a 7-day historical average discounted by 15%, a 10% assumed selling fee, at least 20 sales in 7 days, at least 50 RUB theoretical profit, at least 10% theoretical margin, and a 50–500 RUB listing range. Verify currency and endpoint schemas with the provider before relying on results. Historical reference is **not** a live sell bid. Results may be empty. No trading calls are made.
 
-def load_history():
-    if not HISTORY_FILE.exists():
-        return {}
+## Run
+`python check_api.py` then `python monitor.py`. GitHub Actions workflow `monitor.yml` runs scheduled scans, but GitHub schedules may be delayed or skipped; this is not an always-on server. `telegram_bot.py` is a long-running polling panel and needs separate persistent hosting; the test workflow only compiles it.
 
-    data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-    return data.get("sent", {})
+## Accounting
+`purchases.json` contains **simulated** historic records. Old records with `buy_price` and new ones with `price` are both counted toward the simulated budget. Do not confuse simulated budget with real wallet funds. Existing records are preserved. To start a fresh simulation, back up then reset `purchases.json` to `[]` and `sent_alerts.json` to `{}`.
 
-
-def save_history(history):
-    HISTORY_FILE.write_text(
-        json.dumps(
-            {"sent": history},
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-
-async def main():
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    owner = os.environ["TELEGRAM_OWNER_ID"]
-
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(hours=24)
-
-    history = load_history()
-
-    history = {
-        name: timestamp
-        for name, timestamp in history.items()
-        if datetime.fromisoformat(timestamp) > cutoff
-    }
-
-    items = await scan()
-    sent = 0
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        for item in items:
-            if sent >= MAX_ALERTS:
-                break
-
-            name = str(item["name"])
-            margin = float(item["reference_margin"])
-
-            if margin < MIN_MARGIN or name in history:
-                continue
-
-            message = (
-                "🔎 CS2 — ценовой сигнал\n\n"
-                f"🎮 {name}\n"
-                f"Справочная цена: {item['sell_reference']} ₽\n"
-                f"Заявка покупки: {item['buy_order']} ₽\n"
-                f"Спред: {item['spread']}%\n"
-                f"Расчётная маржа: {margin:.2f} ₽\n"
-                f"Объём: {item['volume']}\n\n"
-                "⚠️ Прибыль не гарантирована. "
-                "Проверь реальные цены, комиссии "
-                "и возможность сделки."
-            )
-
-            response = await client.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": owner, "text": message},
-            )
-            response.raise_for_status()
-
-            if not response.json().get("ok"):
-                raise RuntimeError("Telegram rejected message")
-
-            history[name] = now.isoformat()
-            save_history(history)
-            sent += 1
-
-    print(f"Проверка завершена. Отправлено: {sent}")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+## Security
+Keep GitHub secrets out of logs and source. Real trading is intentionally blocked even if `DRY_RUN=false`. The workflow commits simulation state to the default branch; do not use this approach for live trading or financial ledger integrity. Use a transactional database before any future live trading.
