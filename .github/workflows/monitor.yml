@@ -32,11 +32,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      
+      - name: Test Market API
+        env:
+          MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
+        run: python check_api.py
+
       - name: Check market
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
           MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
+        run: python monitor.py
+
         run: python monitor.py
 
       - name: Save alert history
