@@ -114,7 +114,7 @@ def screen(section):
         return (
             "💰 <b>УЧЁТ РЕЗЕРВОВ</b>\n\n"
             f"💵 Начальный: {money(BUDGET)}\n"
-            f"💳 Доступно по журналу: {money(capacity["remaining_rub"])}\n"
+            f"💳 Доступно по журналу: {money(capacity['remaining_rub'])}\n"
             f"🎯 Лимит предмета: {money(MAX_ITEM)}\n"
             f"🛒 Операций в журнале: {len(buys)}\n\n"
             "🔒 Реальная торговля отключена."
@@ -130,7 +130,7 @@ def screen(section):
             lines.append(
                 f"🎮 {safe(item.get('name', 'Предмет'))}\n"
                 f"💵 {money(item.get('price_rub', 0))}\n"
-                f"🕒 {format_time(item.get('created_at'))}\\n"\n                f"Статус: {safe(item.get('status', 'UNKNOWN'))}"
+                f"🕒 {format_time(item.get('created_at'))}\n"\n                f"Статус: {safe(item.get('status', 'UNKNOWN'))}"
             )
 
         return "\n\n".join(lines)
@@ -149,7 +149,7 @@ def screen(section):
     return (
         "🎮 <b>CS2 MARKET MONITOR</b>\n\n"
         "Добро пожаловать в панель мониторинга!\n\n"
-        f"💰 Доступно по журналу: {money(capacity["remaining_rub"])}\n"
+        f"💰 Доступно по журналу: {money(capacity['remaining_rub'])}\n"
         f"📦 Позиция сканера: {safe(cursor)}\n"
         f"🛒 Операций в журнале: {len(buys)}\n"
         "🔒 Реальные покупки: ВЫКЛ.\n\n"
