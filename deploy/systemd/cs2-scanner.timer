@@ -1,0 +1,11 @@
+[Unit]
+Description=Run CS2 scanner every five minutes after completion
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+Persistent=false
+Unit=cs2-scanner.service
+
+[Install]
+WantedBy=timers.target
