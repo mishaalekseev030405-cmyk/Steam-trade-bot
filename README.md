@@ -17,3 +17,7 @@ Run `python -m unittest discover -s tests -v`. These are offline regression test
 
 ## Safety and deployment
 `DRY_RUN=true` is mandatory, and `trade_guard.purchase_allowed()` always returns false. No real-trading adapter exists. Do not turn on real-money operations until API behavior, prices, permissions, reconciliation, idempotency, database transactions, and error recovery have been verified. For a VPS, use a persistent service and transactional storage rather than relying on GitHub branch files as a live financial ledger.
+
+## VPS deployment
+
+See [deploy/VPS_SETUP.md](deploy/VPS_SETUP.md) for Ubuntu setup, a persistent `CS2_STATE_DIR`, systemd timer and Telegram service, secrets handling, and rollback. The VPS deployment is **not yet validated on a real server**. Disable the GitHub Actions schedule before starting the VPS scanner to avoid parallel scans and state divergence.
