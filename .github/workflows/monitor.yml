@@ -39,6 +39,7 @@ jobs:
           python -m py_compile monitor.py
           python -m py_compile trade_guard.py
           python -m py_compile purchase_approval.py
+          python -m py_compile purchase_ledger.py
 
       - name: Restore scanner state
         env:
@@ -68,7 +69,8 @@ jobs:
 
           for filename in [
               "scan_progress.json",
-              "candidate_history.json"
+              "candidate_history.json",
+              "purchase_ledger.json"
           ]:
               url = (
                   api + "/contents/" + filename
@@ -98,18 +100,39 @@ jobs:
                           or cursor < 0
                       ):
                           raise ValueError("Invalid cursor")
-                  elif not isinstance(parsed, list):
-                      raise ValueError("Invalid history")
+
+                  elif filename == "candidate_history.json":
+                      if not isinstance(parsed, list):
+                          raise ValueError("Invalid history")
+
+                  elif filename == "purchase_ledger.json":
+                      if (
+                          not isinstance(parsed, dict)
+                          or parsed.get("version") != 1
+                          or not isinstance(
+                              parsed.get("operations"), list
+                          )
+                      ):
+                          raise ValueError(
+                              "Invalid purchase ledger"
+                          )
 
                   Path(filename).write_bytes(content)
-
                   print("Restored:", filename)
 
               except urllib.error.HTTPError as exc:
                   if exc.code != 404:
                       raise
+                  if filename == "purchase_ledger.json":
+                      raise RuntimeError(
+                          "Purchase ledger missing in scanner-state. "
+                          "Initialize it explicitly before running."
+                      ) from exc
                   print("No saved file:", filename)
           PY
+
+      - name: Check purchase ledger
+        run: python -u purchase_ledger.py
 
       - name: Run CS2 scanner
         env:
@@ -200,7 +223,8 @@ jobs:
 
           for filename in [
               "scan_progress.json",
-              "candidate_history.json"
+              "candidate_history.json",
+              "purchase_ledger.json"
           ]:
               path = Path(filename)
 
@@ -220,8 +244,22 @@ jobs:
                       or cursor < 0
                   ):
                       raise ValueError("Invalid cursor")
-              elif not isinstance(parsed, list):
-                  raise ValueError("Invalid history")
+
+              elif filename == "candidate_history.json":
+                  if not isinstance(parsed, list):
+                      raise ValueError("Invalid history")
+
+              elif filename == "purchase_ledger.json":
+                  if (
+                      not isinstance(parsed, dict)
+                      or parsed.get("version") != 1
+                      or not isinstance(
+                          parsed.get("operations"), list
+                      )
+                  ):
+                      raise ValueError(
+                          "Invalid purchase ledger"
+                      )
 
               url = api + "/contents/" + filename
 
@@ -266,5 +304,6 @@ jobs:
             profitable_candidates.json
             candidate_history.json
             purchase_proposal.json
+            purchase_ledger.json
           if-no-files-found: warn
           retention-days: 7
