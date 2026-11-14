@@ -41,7 +41,16 @@ jobs:
             cs2-progress-
 
       - name: Check Python files
-        run: python -m py_compile scanner.py monitor.py
+        run: |
+          python -m py_compile scanner.py
+          python -m py_compile monitor.py
+          python -m py_compile trade_guard.py
+          python -m py_compile check_balance.py
+
+      - name: Check Market.CSGO balance
+        env:
+          MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
+        run: python -u check_balance.py
 
       - name: Run CS2 scanner
         env:
@@ -49,6 +58,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
           DRY_RUN: 'true'
+          TELEGRAM_SCAN_REPORTS: 'true'
         run: python -u monitor.py
 
       - name: Save scan progress
