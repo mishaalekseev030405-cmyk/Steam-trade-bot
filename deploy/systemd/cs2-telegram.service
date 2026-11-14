@@ -1,0 +1,23 @@
+[Unit]
+Description=CS2 read-only Telegram dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cs2bot
+Group=cs2bot
+WorkingDirectory=/opt/cs2-market-bot
+EnvironmentFile=/etc/cs2-market-bot.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/cs2-market-bot/.venv/bin/python /opt/cs2-market-bot/telegram_bot.py
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/cs2-market-bot
+
+[Install]
+WantedBy=multi-user.target
