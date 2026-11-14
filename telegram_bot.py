@@ -7,12 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+from purchase_ledger import BUDGET, MAX_ITEM, load_ledger, check_capacity
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 OWNER_ID = os.getenv("TELEGRAM_OWNER_ID", "").strip()
 
-BUDGET = 3000.0
-MAX_PRICE = 500.0
 
 API = f"https://api.telegram.org/bot{TOKEN}"
 
@@ -46,9 +45,10 @@ def money(value):
     return f"{value:,.2f}".replace(",", " ") + " ₽"
 
 
-def purchases():
-    data = load_json("purchases.json", [])
-    return data if isinstance(data, list) else []
+def ledger_snapshot():
+    data = load_ledger()
+    capacity = check_capacity(data)
+    return data["operations"], capacity
 
 
 def alerts():
@@ -60,16 +60,6 @@ def alerts():
 def progress():
     data = load_json("scan_progress.json", {})
     return data if isinstance(data, dict) else {}
-
-
-def remaining():
-    spent = 0.0
-    for item in purchases():
-        try:
-            spent += float(item.get("price", item.get("buy_price", 0)))
-        except (ValueError, TypeError):
-            pass
-    return max(0, BUDGET - spent)
 
 
 def safe(value):
@@ -91,7 +81,7 @@ def format_time(value):
 
 
 def screen(section):
-    buys = purchases()
+    buys, capacity = ledger_snapshot()
     signals = alerts()
     cursor = progress().get("cursor", 0)
 
@@ -100,7 +90,7 @@ def screen(section):
             "📊 <b>СТАТИСТИКА</b>\n\n"
             f"📦 Позиция сканера: {safe(cursor)}\n"
             f"💎 Уведомлений в истории: {len(signals)}\n"
-            f"🛒 Тестовых покупок: {len(buys)}\n\n"
+            f"🛒 Операций в журнале: {len(buys)}\n\n"
             "ℹ️ Данные из сохранённых файлов.\n"
             "Это не подтверждение, что сканер сейчас запущен."
         )
@@ -122,25 +112,25 @@ def screen(section):
 
     if section == "budget":
         return (
-            "💰 <b>ТЕСТОВЫЙ БЮДЖЕТ</b>\n\n"
+            "💰 <b>УЧЁТ РЕЗЕРВОВ</b>\n\n"
             f"💵 Начальный: {money(BUDGET)}\n"
-            f"💳 Остаток: {money(remaining())}\n"
-            f"🎯 Лимит предмета: {money(MAX_PRICE)}\n"
-            f"🛒 Виртуальных покупок: {len(buys)}\n\n"
+            f"💳 Доступно по журналу: {money(capacity["remaining_rub"])}\n"
+            f"🎯 Лимит предмета: {money(MAX_ITEM)}\n"
+            f"🛒 Операций в журнале: {len(buys)}\n\n"
             "🔒 Реальная торговля отключена."
         )
 
     if section == "history":
         if not buys:
-            return "📜 <b>ИСТОРИЯ</b>\n\nПокупок пока нет."
+            return "📜 <b>ИСТОРИЯ</b>\n\nОпераций пока нет."
 
-        lines = ["📜 <b>ВИРТУАЛЬНЫЕ ПОКУПКИ</b>\n"]
+        lines = ["📜 <b>ОПЕРАЦИИ (НЕ РЕАЛЬНЫЕ ПОКУПКИ)</b>\n"]
 
         for item in reversed(buys[-5:]):
             lines.append(
                 f"🎮 {safe(item.get('name', 'Предмет'))}\n"
-                f"💵 {money(float(item.get('price', item.get('buy_price', 0))))}\n"
-                f"🕒 {format_time(item.get('timestamp'))}"
+                f"💵 {money(item.get('price_rub', 0))}\n"
+                f"🕒 {format_time(item.get('created_at'))}\\n"\n                f"Статус: {safe(item.get('status', 'UNKNOWN'))}"
             )
 
         return "\n\n".join(lines)
@@ -151,7 +141,7 @@ def screen(section):
             "🔒 Реальная торговля: ВЫКЛ.\n"
             "🧪 Режим: DRY RUN\n"
             f"💵 Бюджет: {money(BUDGET)}\n"
-            f"🎯 Максимальная цена: {money(MAX_PRICE)}\n\n"
+            f"🎯 Максимальная цена: {money(MAX_ITEM)}\n\n"
             "Изменение настроек через Telegram "
             "пока запрещено для безопасности."
         )
@@ -159,9 +149,9 @@ def screen(section):
     return (
         "🎮 <b>CS2 MARKET MONITOR</b>\n\n"
         "Добро пожаловать в панель мониторинга!\n\n"
-        f"💰 Остаток: {money(remaining())}\n"
+        f"💰 Доступно по журналу: {money(capacity["remaining_rub"])}\n"
         f"📦 Позиция сканера: {safe(cursor)}\n"
-        f"🛒 Виртуальных покупок: {len(buys)}\n"
+        f"🛒 Операций в журнале: {len(buys)}\n"
         "🔒 Реальные покупки: ВЫКЛ.\n\n"
         "👇 Выбери нужный раздел."
     )
