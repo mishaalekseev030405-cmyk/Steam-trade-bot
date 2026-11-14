@@ -1,17 +1,19 @@
-# Steam Trade Bot — safe monitoring build
+# Steam Trade Bot — read-only monitoring
 
-**Simulation only. No real purchase or sell functionality is included.** Historical averages are NOT guaranteed executable sale prices. Never interpret signals as guaranteed profits.
+**No real buying or selling.** The scanner produces estimates based on historical prices; they are not executable sell quotes or guaranteed profit.
 
-## Configuration
-Python 3.11+, `pip install -r requirements.txt`. Configure secrets `MARKET_CSGO_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_ID` in GitHub Settings → Secrets and variables → Actions. Never commit keys. If a token has ever been shared publicly, revoke it and create a new one.
+## Setup
+Use Python 3.11+ and `pip install -r requirements.txt`. Configure `MARKET_CSGO_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_OWNER_ID` in GitHub Actions secrets. Never commit credentials. Revoke any credential previously exposed in chat or logs.
 
-Edit `watchlist.json` with exact market hash names. The scanner checks up to 10 names per run and saves its cursor. It uses API listing prices in kopecks, a 7-day historical average discounted by 15%, a 10% assumed selling fee, at least 20 sales in 7 days, at least 50 RUB theoretical profit, at least 10% theoretical margin, and a 50–500 RUB listing range. Verify currency and endpoint schemas with the provider before relying on results. Historical reference is **not** a live sell bid. Results may be empty. No trading calls are made.
+## Current workflow
+`.github/workflows/monitor.yml` schedules runs every five minutes, but GitHub Actions schedules can be delayed or skipped. It compiles Python modules, runs offline safety tests, restores state from the `scanner-state` branch, validates the purchase ledger, runs `monitor.py` and `purchase_approval.py`, then saves state. The workflow requires a valid `purchase_ledger.json` in `scanner-state`; if missing, it fails closed.
 
-## Run
-`python check_api.py` then `python monitor.py`. GitHub Actions workflow `monitor.yml` runs scheduled scans, but GitHub schedules may be delayed or skipped; this is not an always-on server. `telegram_bot.py` is a long-running polling panel and needs separate persistent hosting; the test workflow only compiles it.
+The scanner currently processes up to 100 catalog items per run (not the `watchlist.json` entries). It requires explicit `MARKET_OFFER_PRICE_UNIT` and `MARKET_HISTORY_PRICE_UNIT` configuration. The workflow currently sets these to `kopecks` and `rubles`, respectively; **verify these assumptions against real API responses before trusting the results**. Filters: 50–500 RUB offer price, 20 reported sales over seven days, at least 50 RUB estimated profit and 10% estimated ROI, assuming a 10% selling fee. Actual liquidity, fees, slippage, order availability, and selling price are not verified.
 
-## Accounting
-`purchases.json` contains **simulated** historic records. Old records with `buy_price` and new ones with `price` are both counted toward the simulated budget. Do not confuse simulated budget with real wallet funds. Existing records are preserved. To start a fresh simulation, back up then reset `purchases.json` to `[]` and `sent_alerts.json` to `{}`.
+`telegram_bot.py` provides a separate polling-based, read-only Telegram panel. It is not launched by the scheduled workflow and must be hosted separately for continuous availability. Its simulated-purchase display reads legacy `purchases.json`; the newer reservation ledger is `purchase_ledger.json`. These are **not the same accounting source** and must be unified before live trading.
 
-## Security
-Keep GitHub secrets out of logs and source. Real trading is intentionally blocked even if `DRY_RUN=false`. The workflow commits simulation state to the default branch; do not use this approach for live trading or financial ledger integrity. Use a transactional database before any future live trading.
+## Tests
+Run `python -m unittest discover -s tests -v`. These are offline regression tests and do not prove that Market.CSGO or Telegram APIs are available.
+
+## Safety and deployment
+`DRY_RUN=true` is mandatory, and `trade_guard.purchase_allowed()` always returns false. No real-trading adapter exists. Do not turn on real-money operations until API behavior, prices, permissions, reconciliation, idempotency, database transactions, and error recovery have been verified. For a VPS, use a persistent service and transactional storage rather than relying on GitHub branch files as a live financial ledger.
