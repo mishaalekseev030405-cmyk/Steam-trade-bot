@@ -13,6 +13,7 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 OWNER_ID = os.getenv("TELEGRAM_OWNER_ID", "").strip()
 
 
+STATE_DIR = Path(os.getenv("CS2_STATE_DIR", str(Path(__file__).resolve().parent))).resolve()
 API = f"https://api.telegram.org/bot{TOKEN}"
 
 MENU = {
@@ -35,7 +36,7 @@ MENU = {
 
 def load_json(filename, default):
     try:
-        with Path(filename).open(encoding="utf-8") as f:
+        with (STATE_DIR / filename).open(encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return default
