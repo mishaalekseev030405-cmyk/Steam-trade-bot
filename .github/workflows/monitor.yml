@@ -41,6 +41,9 @@ jobs:
           python -m py_compile purchase_approval.py
           python -m py_compile purchase_ledger.py
 
+      - name: Run offline safety tests
+        run: python -m unittest discover -s tests -v
+
       - name: Restore scanner state
         env:
           GH_TOKEN: ${{ github.token }}
