@@ -40,8 +40,8 @@ def scan():
                 history_id=index.get(name)
                 if history_id is None: continue
                 history=fetch(client,BASE+'/full-history/'+str(history_id)+'.json').get('data',{})
-                sales=number(history.get('sales7d'))
-                avg=number(history.get('average7d'))
+                sales=number(history.get('sales7d',{}).get('RUB'))
+avg=number(history.get('average7d',{}).get('RUB'))
                 if not sales or sales<20 or not avg: continue
                 payload=fetch(client,BASE+'/search-list-items-by-hash-name-all',{'key':key,'list_hash_name[]':name})
                 if payload.get('currency')!='RUB': continue
