@@ -3,6 +3,8 @@ name: CS2 Market Monitor
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
 
 permissions:
   contents: read
@@ -15,7 +17,7 @@ jobs:
   scan:
     name: Scan CS2 Market
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -31,21 +33,29 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install -r requirements.txt
 
-      - name: Check Market API
-        env:
-          MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
+      - name: Validate Python files
         run: |
-          python -u check_api.py
+          python -m py_compile scanner.py monitor.py
 
       - name: Run CS2 scanner
         env:
+          MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
-          MARKET_CSGO_API_KEY: ${{ secrets.MARKET_CSGO_API_KEY }}
           DRY_RUN: "true"
         run: |
-          echo "STARTING CS2 BOT"
           python -u monitor.py
-          echo "CS2 BOT FINISHED"
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cs2-scan-${{ github.run_id }}
+          path: |
+            latest_results.json
+            scan_progress.json
+            sent_alerts.json
+          if-no-files-found: ignore
+          retention-days: 7
