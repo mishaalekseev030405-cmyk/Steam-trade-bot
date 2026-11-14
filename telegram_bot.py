@@ -130,7 +130,8 @@ def screen(section):
             lines.append(
                 f"🎮 {safe(item.get('name', 'Предмет'))}\n"
                 f"💵 {money(item.get('price_rub', 0))}\n"
-                f"🕒 {format_time(item.get('created_at'))}\n"\n                f"Статус: {safe(item.get('status', 'UNKNOWN'))}"
+                f"🕒 {format_time(item.get('created_at'))}\n"
+                f"Статус: {safe(item.get('status', 'UNKNOWN'))}"
             )
 
         return "\n\n".join(lines)
