@@ -1,9 +1,11 @@
 
-"""Market.CSGO scanner: read-only, estimated profit, no buying."""
+"""Read-only Market.CSGO scanner with diagnostics."""
+
 import json
 import math
 import os
 import time
+from collections import Counter
 from pathlib import Path
 
 import httpx
@@ -12,19 +14,17 @@ ROOT = Path(__file__).resolve().parent
 BASE = "https://market.csgo.com/api/v2"
 
 BATCH_SIZE = 20
-MIN_PRICE = 50.0
-MAX_PRICE = 500.0
+MIN_PRICE = 50
+MAX_PRICE = 500
 MIN_SALES_7D = 20
-MIN_PROFIT = 50.0
-MIN_ROI = 10.0
 
-# Planning assumptions, NOT verified marketplace fees.
-SELL_FEE = 0.10
-PRICE_SAFETY_DISCOUNT = 0.15
-REQUEST_DELAY = 0.5
+PROGRESS = ROOT / "scan_progress.json"
+DIAGNOSTICS = ROOT / "scan_diagnostics.json"
 
 
 def positive(value):
+    if isinstance(value, bool):
+        return None
     try:
         result = float(value)
         if math.isfinite(result) and result > 0:
@@ -34,26 +34,29 @@ def positive(value):
     return None
 
 
-def read(path, default):
+def read_json(path, default):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return default
 
 
-def write(path, value):
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+def save_json(path, data):
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8"
     )
-    tmp.replace(path)
+    temp.replace(path)
 
 
 def fetch(client, endpoint, params=None):
     for attempt in range(3):
         try:
-            response = client.get(BASE + endpoint, params=params)
+            response = client.get(
+                BASE + endpoint,
+                params=params
+            )
             response.raise_for_status()
             data = response.json()
 
@@ -65,10 +68,26 @@ def fetch(client, endpoint, params=None):
 
             return data
 
-        except (httpx.HTTPError, ValueError) as exc:
+        except (httpx.HTTPError, ValueError):
             if attempt == 2:
                 raise
             time.sleep(2 ** attempt)
+
+
+def history_sales(value):
+    return positive(value)
+
+
+def history_average(value, currency):
+    # Historical prices are informational only.
+    # Currency and amount units must be verified.
+    if isinstance(value, dict):
+        return positive(value.get("RUB"))
+
+    if currency == "RUB":
+        return positive(value)
+
+    return None
 
 
 def scan():
@@ -76,20 +95,17 @@ def scan():
     if not key:
         raise RuntimeError("MARKET_CSGO_API_KEY missing")
 
-    progress = ROOT / "scan_progress.json"
-    state = read(progress, {})
+    state = read_json(PROGRESS, {})
     if not isinstance(state, dict):
         state = {}
 
+    counts = Counter()
     results = []
-    checked_offers = 0
-    failures = 0
-    skipped_currency = 0
-    eligible_items = 0
 
     with httpx.Client(timeout=30) as client:
         catalog = fetch(
-            client, "/full-history/all.json"
+            client,
+            "/full-history/all.json"
         ).get("history")
 
         if not isinstance(catalog, dict):
@@ -104,11 +120,11 @@ def scan():
             raise ValueError("Empty catalog")
 
         try:
-            cursor = max(
-                0, int(state.get("cursor", 0))
-            ) % len(names)
-        except (TypeError, ValueError, OverflowError):
+            cursor = int(state.get("cursor", 0))
+        except (ValueError, TypeError, OverflowError):
             cursor = 0
+
+        cursor = max(0, cursor) % len(names)
 
         selected = [
             names[(cursor + i) % len(names)]
@@ -119,158 +135,173 @@ def scan():
             "Catalog:", len(names),
             "Cursor:", cursor,
             "Batch:", len(selected),
-            flush=True,
+            flush=True
         )
 
         for name in selected:
+            counts["items_scanned"] += 1
+
             try:
-                history = fetch(
+                hist = fetch(
                     client,
                     "/full-history/" +
                     str(catalog[name]) + ".json"
                 ).get("data", {})
 
-                if not isinstance(history, dict):
+                if not isinstance(hist, dict):
+                    counts["invalid_history"] += 1
                     continue
 
-                avg_data = history.get("average7d")
-                sales_data = history.get("sales7d")
+                sales = history_sales(
+                    hist.get("sales7d")
+                )
 
-                if not isinstance(avg_data, dict):
-                    continue
-
-                if not isinstance(sales_data, dict):
-                    continue
-
-                average = positive(avg_data.get("RUB"))
-                sales = positive(sales_data.get("RUB"))
-
-                if average is None or sales is None:
+                if sales is None:
+                    counts["missing_sales"] += 1
                     continue
 
                 if sales < MIN_SALES_7D:
+                    counts["low_liquidity"] += 1
                     continue
 
-                eligible_items += 1
+                counts["eligible_items"] += 1
+
+                average = history_average(
+                    hist.get("average7d"),
+                    hist.get("currency")
+                )
+
+                if average is None:
+                    counts["unverified_history_price"] += 1
 
                 payload = fetch(
                     client,
                     "/search-list-items-by-hash-name-all",
                     {
                         "key": key,
-                        "list_hash_name[]": name,
-                    },
+                        "list_hash_name[]": name
+                    }
                 )
 
                 if payload.get("currency") != "RUB":
-                    skipped_currency += 1
+                    counts["unverified_offer_currency"] += 1
                     continue
 
                 groups = payload.get("data", {})
-                if not isinstance(groups, dict):
-                    continue
+                offers = (
+                    groups.get(name, [])
+                    if isinstance(groups, dict)
+                    else []
+                )
 
-                offers = groups.get(name, [])
                 if not isinstance(offers, list):
+                    counts["invalid_offers"] += 1
                     continue
-
-                # Discounted historical estimate.
-                estimated_sell = (
-                    average * (1 - PRICE_SAFETY_DISCOUNT)
-                )
-                estimated_net = (
-                    estimated_sell * (1 - SELL_FEE)
-                )
 
                 for offer in offers:
                     if not isinstance(offer, dict):
+                        counts["invalid_offers"] += 1
                         continue
 
-                    checked_offers += 1
+                    counts["offers_checked"] += 1
 
-                    raw_price = positive(offer.get("price"))
+                    raw_price = positive(
+                        offer.get("price")
+                    )
+
                     item_id = offer.get("id")
 
-                    if raw_price is None or item_id is None:
+                    if raw_price is None:
+                        counts["invalid_price"] += 1
                         continue
 
-                    # Listing prices are in minor currency units.
-                    buy_price = raw_price / 100.0
-
-                    if not MIN_PRICE <= buy_price <= MAX_PRICE:
+                    if item_id is None or not str(item_id).strip():
+                        counts["missing_item_id"] += 1
                         continue
 
-                    profit = estimated_net - buy_price
-                    roi = profit / buy_price * 100
+                    # Assumption inherited from the current scanner:
+                    # offer.price is expressed in kopecks.
+                    # Verify against API documentation before live trading.
+                    price = raw_price / 100
 
-                    if profit < MIN_PROFIT:
+                    if price < MIN_PRICE:
+                        counts["below_min_price"] += 1
                         continue
 
-                    if roi < MIN_ROI:
+                    if price > MAX_PRICE:
+                        counts["above_max_price"] += 1
                         continue
+
+                    counts["price_eligible_offers"] += 1
+
+                    # Do not invent an executable resale price.
+                    # Historical average alone is insufficient.
+                    counts["profit_not_verified"] += 1
 
                     results.append({
                         "name": name,
                         "item_id": str(item_id),
-                        "buy_price_rub": round(buy_price, 2),
-                        "historical_average_rub": round(
-                            average, 2
-                        ),
-                        "estimated_sell_rub": round(
-                            estimated_sell, 2
-                        ),
-                        "estimated_profit_rub": round(
-                            profit, 2
-                        ),
-                        "estimated_roi_percent": round(
-                            roi, 2
-                        ),
-                        "sales7d": int(sales),
-                        "fee_assumption": SELL_FEE,
-                        "status": "manual_review_required",
+                        "buy_price_rub": round(price, 2),
+                        "sales7d_reported": sales,
+                        "historical_average_rub_raw": average,
                         "profit_verified": False,
+                        "status": "manual_review_required"
                     })
-
-            except httpx.HTTPStatusError as exc:
-                failures += 1
-                print(
-                    "HTTP error:",
-                    exc.response.status_code,
-                    name,
-                    flush=True,
-                )
 
             except (
                 httpx.HTTPError,
                 ValueError,
                 TypeError,
-                KeyError,
+                KeyError
             ) as exc:
-                failures += 1
+                counts["item_failures"] += 1
                 print(
                     "Item error:",
                     name,
                     type(exc).__name__,
-                    flush=True,
+                    flush=True
                 )
 
-            time.sleep(REQUEST_DELAY)
+            time.sleep(0.25)
 
-    results.sort(
-        key=lambda item: item["estimated_profit_rub"],
-        reverse=True,
-    )
+    next_cursor = (
+        cursor + len(selected)
+    ) % len(names)
 
-    write(progress, {
-        "cursor": (cursor + len(selected)) % len(names),
-        "catalog_size": len(names),
+    save_json(PROGRESS, {
+        "cursor": next_cursor,
+        "catalog_size": len(names)
     })
 
-    print("Eligible items:", eligible_items, flush=True)
-    print("Offers checked:", checked_offers, flush=True)
-    print("Failures:", failures, flush=True)
-    print("Unverified currency:", skipped_currency, flush=True)
-    print("Estimated opportunities:", len(results), flush=True)
+    report = {
+        "mode": "READ_ONLY",
+        "catalog_size": len(names),
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "batch_size": len(selected),
+        "counts": dict(counts),
+        "manual_review_candidates": len(results),
+        "verified_profitable_candidates": 0,
+        "real_purchases": 0,
+        "note": (
+            "Prices and profitability require independent "
+            "verification before live trading."
+        )
+    }
+
+    save_json(DIAGNOSTICS, report)
+
+    print("DIAGNOSTICS", flush=True)
+
+    for key, value in sorted(counts.items()):
+        print(f"{key}: {value}", flush=True)
+
+    print(
+        "Manual review candidates:",
+        len(results),
+        flush=True
+    )
+    print("Verified profitable candidates: 0", flush=True)
     print("Real purchases: 0", flush=True)
 
     return results[:30]
