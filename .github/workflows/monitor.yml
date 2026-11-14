@@ -2,7 +2,7 @@ name: CS2 Market Monitor
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/5 * * * *'
 permissions:
   contents: read
 concurrency:
