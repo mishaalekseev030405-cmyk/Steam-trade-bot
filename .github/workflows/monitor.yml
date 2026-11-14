@@ -46,6 +46,7 @@ jobs:
           python -m py_compile monitor.py
           python -m py_compile trade_guard.py
           python -m py_compile check_balance.py
+          python -m py_compile trade_engine.py
 
       - name: Check Market.CSGO balance
         env:
@@ -60,6 +61,11 @@ jobs:
           DRY_RUN: 'true'
           TELEGRAM_SCAN_REPORTS: 'true'
         run: python -u monitor.py
+
+      - name: Simulate CS2 trades
+        env:
+          DRY_RUN: 'true'
+        run: python -u trade_engine.py
 
       - name: Save scan progress
         if: always()
@@ -76,4 +82,5 @@ jobs:
           path: |
             latest_results.json
             scan_progress.json
+            trade_simulation.json
           if-no-files-found: ignore
