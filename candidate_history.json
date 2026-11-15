@@ -358,5 +358,29 @@
     "profit_verified": false,
     "status": "ESTIMATE_REVIEW_REQUIRED",
     "first_seen_utc": "2026-11-14T15:16:33.126904+00:00"
+  },
+  {
+    "name": "P2000 | Obsidian (Well-Worn)",
+    "item_id": "12269285327",
+    "buy_price_rub": 144.99,
+    "historical_sell_price_rub": 223.99,
+    "estimated_profit_rub": 56.6,
+    "estimated_roi_percent": 39.04,
+    "sales7d_reported": 33.0,
+    "profit_verified": false,
+    "status": "ESTIMATE_REVIEW_REQUIRED",
+    "first_seen_utc": "2026-11-15T19:08:44.143307+00:00"
+  },
+  {
+    "name": "P2000 | Obsidian (Well-Worn)",
+    "item_id": "12330840734",
+    "buy_price_rub": 145.0,
+    "historical_sell_price_rub": 223.99,
+    "estimated_profit_rub": 56.59,
+    "estimated_roi_percent": 39.03,
+    "sales7d_reported": 33.0,
+    "profit_verified": false,
+    "status": "ESTIMATE_REVIEW_REQUIRED",
+    "first_seen_utc": "2026-11-15T19:08:44.143307+00:00"
   }
 ]
