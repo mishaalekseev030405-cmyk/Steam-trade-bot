@@ -1,0 +1,12 @@
+services:
+  cs2-bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - cs2_state:/app/data
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  cs2_state:
