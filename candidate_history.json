@@ -382,5 +382,53 @@
     "profit_verified": false,
     "status": "ESTIMATE_REVIEW_REQUIRED",
     "first_seen_utc": "2026-11-15T19:08:44.143307+00:00"
+  },
+  {
+    "name": "StatTrak™ Galil AR | Stone Cold (Battle-Scarred)",
+    "item_id": "12377853392",
+    "buy_price_rub": 404.77,
+    "historical_sell_price_rub": 529.53,
+    "estimated_profit_rub": 71.81,
+    "estimated_roi_percent": 17.74,
+    "sales7d_reported": 45.0,
+    "profit_verified": false,
+    "status": "ESTIMATE_REVIEW_REQUIRED",
+    "first_seen_utc": "2026-11-19T06:39:14.085837+00:00"
+  },
+  {
+    "name": "StatTrak™ Galil AR | Stone Cold (Battle-Scarred)",
+    "item_id": "12373720912",
+    "buy_price_rub": 404.85,
+    "historical_sell_price_rub": 529.53,
+    "estimated_profit_rub": 71.73,
+    "estimated_roi_percent": 17.72,
+    "sales7d_reported": 45.0,
+    "profit_verified": false,
+    "status": "ESTIMATE_REVIEW_REQUIRED",
+    "first_seen_utc": "2026-11-19T06:39:14.085837+00:00"
+  },
+  {
+    "name": "StatTrak™ Galil AR | Stone Cold (Battle-Scarred)",
+    "item_id": "12375352168",
+    "buy_price_rub": 406.15,
+    "historical_sell_price_rub": 529.53,
+    "estimated_profit_rub": 70.43,
+    "estimated_roi_percent": 17.34,
+    "sales7d_reported": 45.0,
+    "profit_verified": false,
+    "status": "ESTIMATE_REVIEW_REQUIRED",
+    "first_seen_utc": "2026-11-19T06:39:14.085837+00:00"
+  },
+  {
+    "name": "StatTrak™ Galil AR | Stone Cold (Battle-Scarred)",
+    "item_id": "12377946452",
+    "buy_price_rub": 406.24,
+    "historical_sell_price_rub": 529.53,
+    "estimated_profit_rub": 70.34,
+    "estimated_roi_percent": 17.31,
+    "sales7d_reported": 45.0,
+    "profit_verified": false,
+    "status": "ESTIMATE_REVIEW_REQUIRED",
+    "first_seen_utc": "2026-11-19T06:39:14.085837+00:00"
   }
 ]
