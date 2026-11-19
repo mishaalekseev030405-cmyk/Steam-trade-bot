@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 from scanner import scan
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(os.getenv("CS2_STATE_DIR", str(Path(__file__).resolve().parent))).resolve()
 
 RESULTS_FILE = ROOT / "latest_results.json"
 HISTORY_FILE = ROOT / "candidate_history.json"
