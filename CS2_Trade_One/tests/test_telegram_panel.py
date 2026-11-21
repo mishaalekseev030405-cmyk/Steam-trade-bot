@@ -36,7 +36,7 @@ class TelegramPanelTests(unittest.TestCase):
         self.assertIn('SQLite', self.app.diagnostics_text())
         self.assertIn('БЮДЖЕТ', self.app.budget_text())
         self.assertIn('DRY_RUN', self.app.security_text())
-        self.assertIn('САМОПРОВЕРКА', self.app.tests_text())
+        self.assertIn('ТЕСТИРОВАНИЕ', self.app.tests_text())
         self.market.buy_by_id.assert_not_called()
         self.market.list_owned_item.assert_not_called()
 
