@@ -63,11 +63,16 @@ class App:
 
     def menu(self):
         scan = self.store.get('scanning') == '1'
+        alerts = self.store.get('notifications', '1') == '1'
         return [
-            [('📊 Сводка', 'home'), ('💎 Находки', 'finds')],
-            [('🔍 Сканировать', 'scan'), ('⏹ Пауза' if scan else '▶️ Старт', 'toggle')],
-            [('💳 Баланс', 'balance'), ('🧾 Сделки', 'history')],
-            [('⚙️ Режим', 'settings'), ('🔄 Сверить покупки', 'sync')],
+            [('🏠 Главная', 'home'), ('💎 Находки', 'finds')],
+            [('🔍 Скан сейчас', 'scan'), ('⏹ Стоп' if scan else '▶️ Запуск', 'toggle')],
+            [('💰 Бюджет', 'budget'), ('💳 Баланс', 'balance')],
+            [('📜 История', 'history'), ('🔄 Сверка', 'sync')],
+            [('📡 Диагностика', 'diagnostics'), ('🧪 Тесты', 'tests')],
+            [('🔔 Уведомл. ВКЛ' if alerts else '🔕 Уведомл. ВЫКЛ', 'notifications'),
+             ('🛡 Защита', 'security')],
+            [('⚙️ Настройки', 'settings'), ('❓ Помощь', 'help')],
         ]
 
     def home(self) -> str:
@@ -117,6 +122,108 @@ class App:
                 f'Комиссия расчёта: {self.cfg.sell_fee * 100}%\n\n'
                 'Продажа скинов из Telegram пока не включена: требуется проверка инвентаря и Steam-трейдов.')
 
+    def budget_text(self) -> str:
+        info = self.store.overview(self.cfg)
+        return (
+            '💰 <b>БЮДЖЕТ И ПОЗИЦИИ</b>\n\n'
+            f'Лимит: <b>{fmt(self.cfg.budget_rub)} ₽</b>\n'
+            f'Зарезервировано: {fmt(info["reserved_rub"])} ₽\n'
+            f'Свободно по лимиту: {fmt(info["remaining_rub"])} ₽\n'
+            f'Активных позиций: {info["positions"]} / {self.cfg.max_positions}\n'
+            f'Незавершённых операций: {info["unresolved"]}\n'
+            f'Цена одного скина: {fmt(self.cfg.min_item_rub)}–{fmt(self.cfg.max_item_rub)} ₽\n\n'
+            '⚠️ Это внутренний учёт бота, не реальный остаток кошелька. '
+            'Баланс Market.CSGO — в разделе «Баланс».'
+        )
+
+    def diagnostics_text(self) -> str:
+        # Never forward raw HTTP errors, URLs or secret-bearing exception strings.
+        err = '⚠️ Ошибка — смотри логи сервера' if self.store.get('last_error') else '✅ Нет'
+        return (
+            '📡 <b>ДИАГНОСТИКА</b>\n\n'
+            'Панель Telegram: ✅ отвечает\n'
+            f'Сканирование: {"🟢 включено" if self.store.get("scanning") == "1" else "⏸ на паузе"}\n'
+            f'Последний скан: {esc(self.store.get("last_scan", "нет"))[:40]}\n'
+            f'Просмотрено предметов: {esc(self.store.get("last_scan_count", "0"))[:20]}\n'
+            f'Кандидатов: {esc(self.store.get("last_scan_found", "0"))[:20]}\n'
+            f'Курсор: {esc(self.store.get("cursor", "0"))[:20]}\n'
+            f'Ошибка: {err}\n'
+            f'Интервал: {self.cfg.scan_every_s} сек\n'
+            'Данные операций: SQLite\n\n'
+            'Нажми «🧪 Тесты» для безопасной проверки API.'
+        )
+
+    def tests_text(self) -> str:
+        return (
+            '🧪 <b>ТЕСТИРОВАНИЕ БОТА</b>\n\n'
+            'В проекте есть автоматические проверки расчётов, лимитов, '
+            'копеек/рублей, повторных покупок и тайм-аутов.\n\n'
+            '<b>Перед торговлей необходимо:</b>\n'
+            '1. Сверить цены и валюту с Market.CSGO.\n'
+            '2. Проверить актуальность buy-ордеров и комиссию.\n'
+            '3. Проверить кнопки и защиту доступа Telegram.\n'
+            '4. Провести 20 виртуальных сделок.\n'
+            '5. Перезапустить сервер и проверить SQLite.\n'
+            '6. Проверить стабильность работы 24 часа.\n'
+            '7. Проверить первую реальную сделку только с разрешения владельца.\n\n'
+            '🔬 Самопроверка ниже читает баланс и котировки, '
+            '<b>никогда не покупает и не продаёт</b>.'
+        )
+
+    def security_text(self) -> str:
+        info = self.store.overview(self.cfg)
+        return (
+            '🛡 <b>БЕЗОПАСНОСТЬ</b>\n\n'
+            f'Торговля: {"⚠️ LIVE разрешён на сервере" if self.cfg.live_ready else "🔒 DRY_RUN (без списаний)"}\n'
+            f'Автопокупка: {"⚠️ разрешена" if self.auto_allowed() else "🔒 отключена"}\n'
+            f'Лимит на лот: {fmt(self.cfg.max_item_rub)} ₽\n'
+            f'Общий бюджет: {fmt(self.cfg.budget_rub)} ₽\n'
+            f'Позиций максимум: {self.cfg.max_positions}\n'
+            f'Минимальная расчётная прибыль: {fmt(self.cfg.min_profit_rub)} ₽\n'
+            f'Минимальный ROI: {fmt(self.cfg.min_roi_percent)}%\n'
+            f'Незавершённых покупок: {info["unresolved"]}\n\n'
+            '🔐 Первую покупку подтверждает владелец; цена перепроверяется.\n'
+            '🚫 Автоматическая продажа не реализована.\n'
+            'Изменить LIVE/DRY_RUN через Telegram нельзя.'
+        )
+
+    def help_text(self) -> str:
+        return (
+            '❓ <b>ПОМОЩЬ</b>\n\n'
+            '🔍 Скан — разовая проверка рынка.\n'
+            '▶️/⏹ — запуск или пауза поиска в работающем CS2 Trade One.\n'
+            '💎 Находки — свежие кандидаты за 15 минут.\n'
+            '💰 Бюджет — локальные лимиты, 💳 Баланс — API площадки.\n'
+            '📜 История — операции, 🔄 Сверка — незавершённые сделки.\n'
+            '🧪 Тесты — безопасная проверка API.\n'
+            '🔔 Уведомления — оповещения о новых находках.\n\n'
+            'Команды: /start /menu /status /scan /tests /help\n'
+            '⚠️ Пауза здесь не отключает отдельный GitHub Actions workflow.\n'
+            'Оценочная прибыль не гарантирует продажу.'
+        )
+
+    async def selftest(self) -> str:
+        """Read-only API and SQLite checks; NO buying/selling endpoints."""
+        lines = ['🔬 <b>САМОПРОВЕРКА (БЕЗ ПОКУПОК)</b>']
+        try:
+            info = await asyncio.to_thread(self.store.overview, self.cfg)
+            lines.append(f'✅ База SQLite: доступна; позиций {info["positions"]}')
+        except Exception:
+            lines.append('❌ SQLite: ошибка чтения')
+        try:
+            balance = await asyncio.to_thread(self.market.balance)
+            lines.append(f'✅ Баланс Market.CSGO: {fmt(balance)} ₽')
+        except Exception as exc:
+            lines.append(f'❌ API баланса: {esc(type(exc).__name__)}')
+        try:
+            quotes = await asyncio.to_thread(self.market.buy_order_quotes)
+            lines.append(f'✅ Котировки buy-ордеров: {len(quotes)} названий')
+        except Exception as exc:
+            lines.append(f'❌ API котировок: {esc(type(exc).__name__)}')
+        lines.append('🔒 Торговые запросы не отправлялись.')
+        lines.append('⚠️ Это не заменяет unit-тесты и проверку на реальных сделках.')
+        return '\n'.join(lines)
+
     def auto_allowed(self) -> bool:
         return (self.cfg.live_ready and self.cfg.enable_auto_after_first
                 and self.store.get('auto') == '1'
@@ -124,6 +231,9 @@ class App:
 
     async def report(self, items: list[dict]) -> None:
         if not items:
+            return
+        if self.store.get('notifications', '1') != '1':
+            self.store.mark_alerted([x['item_id'] for x in items])
             return
         text = '🔔 <b>Новые кандидаты CS2</b>\n\n'
         text += '\n'.join(f'{esc(x["name"])} — {fmt(x["ask_kopecks"] / 100)} ₽, '
@@ -173,6 +283,31 @@ class App:
         elif code == 'finds':
             text, buttons = self.finds()
             await self.show(text, buttons, message_id)
+        elif code == 'budget':
+            await self.show(self.budget_text(), message_id=message_id)
+        elif code == 'diagnostics':
+            await self.show(self.diagnostics_text(), message_id=message_id)
+        elif code == 'tests':
+            await self.show(self.tests_text(),
+                            [[('🔬 Проверить API и БД', 'selftest'), ('🏠 Меню', 'home')]],
+                            message_id)
+        elif code == 'selftest':
+            await self.show('🔬 Читаю данные API и SQLite…',
+                            [[('🏠 Меню', 'home')]], message_id)
+            outcome = await self.selftest()
+            await self.show(outcome,
+                            [[('🔄 Повторить', 'selftest'), ('🏠 Меню', 'home')]])
+        elif code == 'security':
+            await self.show(self.security_text(), message_id=message_id)
+        elif code == 'help':
+            await self.show(self.help_text(), message_id=message_id)
+        elif code == 'notifications':
+            value = '0' if self.store.get('notifications', '1') == '1' else '1'
+            self.store.set('notifications', value)
+            await self.show('🔔 Уведомления о новых находках ' +
+                            ('включены.' if value == '1' else 'выключены.') +
+                            '\nУведомления о критических ошибках остаются включёнными.',
+                            message_id=message_id)
         elif code == 'settings':
             await self.show(self.settings_text(),
                             [[('🤖 Автопокупки ВКЛ/ВЫКЛ', 'auto'), ('🏠 Меню', 'home')]], message_id)
@@ -264,7 +399,13 @@ class App:
                         await self.telegram('answerCallbackQuery', {'callback_query_id': cb['id']})
                         await self.handle(cb.get('data', 'home'), cb.get('message', {}).get('message_id'))
                     elif msg:
-                        await self.handle('home')
+                        raw_command = (msg.get('text') or '').split(maxsplit=1)
+                        command = (raw_command[0].split('@', 1)[0].lower()
+                                   if raw_command else '')
+                        routes = {'/start': 'home', '/menu': 'home',
+                                  '/status': 'home', '/scan': 'scan',
+                                  '/tests': 'tests', '/help': 'help'}
+                        await self.handle(routes.get(command, 'home'))
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
