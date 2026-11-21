@@ -424,9 +424,36 @@ class App:
                         log.error('Cannot send scan warning')
             await asyncio.sleep(self.cfg.scan_every_s)
 
+    async def register_commands(self):
+        """Register official Telegram command menu for the owner chat."""
+        commands = [
+            {'command': 'start', 'description': 'Открыть главную панель'},
+            {'command': 'menu', 'description': 'Все разделы бота'},
+            {'command': 'status', 'description': 'Статус и бюджет'},
+            {'command': 'scan', 'description': 'Разовая проверка рынка'},
+            {'command': 'tests', 'description': 'Диагностика и тесты'},
+            {'command': 'help', 'description': 'Помощь по кнопкам'},
+        ]
+        try:
+            await self.telegram('setMyCommands', {
+                'commands': commands,
+                'scope': {'type': 'chat', 'chat_id': self.cfg.owner_id},
+            })
+            await self.telegram('setChatMenuButton', {
+                'chat_id': self.cfg.owner_id,
+                'menu_button': {'type': 'commands'},
+            })
+        except (httpx.HTTPError, RuntimeError, ValueError):
+            log.warning('Telegram command menu registration unavailable')
+
     async def run(self):
         try:
-            await self.show('✅ CS2 Trade One запущен.\n'+self.home())
+            await self.register_commands()
+            try:
+                await self.show('✅ CS2 Trade One запущен.\n'+self.home())
+            except (httpx.HTTPError, RuntimeError):
+                # The owner may not have started the chat yet; /start will work.
+                log.warning('Startup message not delivered; waiting for owner /start')
             await asyncio.gather(self.updates(), self.scan_loop())
         finally:
             await self.close()

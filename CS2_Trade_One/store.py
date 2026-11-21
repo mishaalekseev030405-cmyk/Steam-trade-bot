@@ -53,7 +53,7 @@ class Store:
                   updated_at TEXT NOT NULL, response TEXT DEFAULT ''
                 );
             ''')
-            for key, value in [('scanning', '1'), ('auto', '0'),
+            for key, value in [('scanning', '0'), ('auto', '0'),
                                ('cursor', '0'), ('tg_offset', '0')]:
                 db.execute('INSERT OR IGNORE INTO state (key,value) VALUES (?,?)',
                            (key, value))

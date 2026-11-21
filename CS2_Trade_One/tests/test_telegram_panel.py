@@ -55,6 +55,19 @@ class TelegramPanelTests(unittest.TestCase):
         asyncio.run(self.app.handle('notifications'))
         self.assertEqual(self.store.get('notifications'), '1')
 
+    def test_telegram_commands_setup(self):
+        self.app.telegram = AsyncMock(return_value=True)
+        asyncio.run(self.app.register_commands())
+        methods = [x.args[0] for x in self.app.telegram.await_args_list]
+        self.assertEqual(methods, ['setMyCommands', 'setChatMenuButton'])
+        command_payload = self.app.telegram.await_args_list[0].args[1]
+        self.assertEqual(command_payload['scope']['chat_id'], 123)
+        self.assertIn('start', [c['command'] for c in command_payload['commands']])
+        self.market.buy_by_id.assert_not_called()
+
+    def test_new_installation_starts_scanning_paused(self):
+        self.assertEqual(self.store.get('scanning'), '0')
+
     def test_selfcheck_errors_are_redacted(self):
         self.market.balance.side_effect = RuntimeError('SECRET_TOKEN')
         self.market.buy_order_quotes.side_effect = RuntimeError('SECRET_TOKEN')
