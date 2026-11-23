@@ -10,7 +10,7 @@ import httpx
 
 from trade_guard import validate_candidate
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(os.getenv("CS2_STATE_DIR", str(Path(__file__).resolve().parent))).resolve()
 RESULTS = ROOT / "latest_results.json"
 PROPOSAL = ROOT / "purchase_proposal.json"
 

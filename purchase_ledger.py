@@ -2,11 +2,12 @@
 """Persistent CS2 purchase ledger. No trading requests."""
 
 import json
+import os
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(os.getenv("CS2_STATE_DIR", str(Path(__file__).resolve().parent))).resolve()
 LEDGER = ROOT / "purchase_ledger.json"
 
 BUDGET = Decimal("3000")

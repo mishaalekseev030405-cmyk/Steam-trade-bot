@@ -15,7 +15,7 @@ from pathlib import Path
 
 import httpx
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(os.getenv("CS2_STATE_DIR", str(Path(__file__).resolve().parent))).resolve()
 BASE = "https://market.csgo.com/api/v2"
 
 BATCH_SIZE = 100
